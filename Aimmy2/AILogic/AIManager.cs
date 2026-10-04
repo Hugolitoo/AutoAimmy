@@ -1129,7 +1129,8 @@ namespace Aimmy2.AILogic
 
         private Rectangle CreateDetectionBox(bool useMousePosition = true)
         {
-            string detectionAreaType = AimSettings.DetectionAreaType;
+            string detectionAreaType = ObservationMode.BlocksOutput && ObservationMode.Options.AimReference == AimReference.ScreenCenter
+                ? "Closest to Center Screen" : AimSettings.DetectionAreaType;
             System.Drawing.Point mousePosition = default;
             bool mouseOnCurrentDisplay = false;
 

@@ -2,9 +2,9 @@
 
 `AimReference` in adaptive.json is `ScreenCenter` (default) or `Cursor`. ScreenCenter requires a full-screen trainer on the monitor selected in Aimmy. Windowed viewports and offset reticles are not calibrated by this version.
 
-Tracking error and box-entry acquisition use the selected reference. An initial overlap has unavailable acquisition latency. Clicks do not establish hits. Cursor trajectory, overshoot and correction metrics are unavailable in ScreenCenter mode.
+Tracking error and box-entry acquisition use the selected reference. In ScreenCenter mode, the capture region is also centered on the selected monitor regardless of a saved mouse-centered capture setting. An initial overlap has unavailable acquisition latency. Clicks do not establish hits. Cursor trajectory, overshoot and correction metrics are unavailable in ScreenCenter mode.
 
-A passive standard Windows Raw Input receiver samples relative mouse counts separately from desktop coordinates. It neither reads a game process nor generates input. Counts are not converted to pixels, degrees, weapon recoil or sensitivity settings. Raw input registration failures are recorded in quality.json; missing telemetry remains unavailable.
+A passive standard Windows Raw Input receiver samples relative mouse counts separately from desktop coordinates. Counts are summed between 8 ms samples; opposing movements within one interval can cancel, so this is not a high-frequency physical trajectory. It neither reads a game process nor generates input. Counts are not converted to pixels, degrees, weapon recoil or sensitivity settings. Raw input registration failures are recorded in quality.json; missing telemetry remains unavailable.
 
 Cognitive ReactionTimeMs is unavailable. MovementOnsetLatencyMs requires at least 200 ms of input history and 150 ms without movement before the first target sample. Continuous motion at first detection does not yield an onset latency. Detection and target association remain model-dependent approximations; validate detection boxes visually before recording. No player rating or automatic setting adjustment is derived from these metrics.
 

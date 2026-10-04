@@ -29,6 +29,8 @@ GameplayEvent Center(double time, double targetX, double rawDx = 0, bool click =
     new(time, 1900, 900, 0, 0, click, new(1, targetX, 540, 20, 20, .99, 0, time),
         AimReference: AimReference.ScreenCenter, AimX: 960, AimY: 540, RawMouseDeltaX: rawDx, RawMouseDeltaY: 0, MotionBaselineValid: true);
 var centered = new FeatureExtractor().Extract(new(1, new[] { Center(0, 1000), Center(.05, 980, 12), Center(.1, 960, 8), Center(.15, 960, 0, true) }, "Click", false));
+var capture = Aimmy2.AILogic.CaptureTargetSelector.SelectDetectionBox("Closest to Center Screen", 640, new System.Drawing.Rectangle(-1920, 0, 1920, 1080), new System.Drawing.Point(-10, 900), true);
+Check(capture.X == -1280 && capture.Y == 220, "centered capture ignores cursor and retains monitor origin");
 Check(Near(centered.Metrics["AcquisitionTimeMs"], 100), "reticle acquires without desktop cursor movement");
 Check(Near(centered.Metrics["TrackingErrorPx"], 20.0 / 3), "tracking references reticle rather than far away cursor");
 Check(Near(centered.Metrics["ClickDelayMs"], 50), "reticle click delay");

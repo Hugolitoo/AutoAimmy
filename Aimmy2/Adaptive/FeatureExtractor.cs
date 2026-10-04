@@ -7,6 +7,7 @@ public sealed record EngagementFeatures(long TargetId, string Context, string En
 public sealed class FeatureExtractor
 {
     public double MovementThresholdPixels { get; init; } = 2;
+    public double MovementThresholdCounts { get; init; } = 2;
     public double CorrectionThresholdPixels { get; init; } = 3;
 
     public EngagementFeatures Extract(Engagement engagement)
@@ -47,7 +48,7 @@ public sealed class FeatureExtractor
                 if (rawDt > 0) rawPeak = Math.Max(rawPeak, rawStep / rawDt);
             }
             double fromStart = cursorMode ? Distance(a.CursorX - first.CursorX, a.CursorY - first.CursorY) : rawPath;
-            if (!moved && fromStart >= MovementThresholdPixels)
+            if (!moved && fromStart >= (cursorMode ? MovementThresholdPixels : MovementThresholdCounts))
             { moved = true; reaction = elapsed * 1000; }
             if (!initiallyOnTarget && t != null && acquisition == null &&
                 Math.Abs(a.ReferenceX - t.X) <= t.Width / 2 && Math.Abs(a.ReferenceY - t.Y) <= t.Height / 2)
