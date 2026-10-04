@@ -25,8 +25,12 @@ public sealed class FeatureExtractor
         int corrections = 0;
         bool moved = false, passed = false;
         double lastProjection = 0;
-        double axisX = (target?.X ?? first.CursorX) - first.CursorX;
-        double axisY = (target?.Y ?? first.CursorY) - first.CursorY;
+        bool cursorMode = first.AimReference == AimReference.Cursor;
+        double rawPath = 0, rawPeak = 0;
+        bool hasRaw = false;
+        bool initiallyOnTarget = target != null && Math.Abs(first.ReferenceX - target.X) <= target.Width / 2 && Math.Abs(first.ReferenceY - target.Y) <= target.Height / 2;
+        double axisX = (target?.X ?? first.ReferenceX) - first.ReferenceX;
+        double axisY = (target?.Y ?? first.ReferenceY) - first.ReferenceY;
         double axisLength = Math.Sqrt(axisX * axisX + axisY * axisY);
         double lastError = double.NaN, decreasingDistance = 0;
         for (int i = 0; i < s.Count; i++)
@@ -34,11 +38,19 @@ public sealed class FeatureExtractor
             var a = s[i];
             var t = a.Target;
             double elapsed = a.Timestamp - first.Timestamp;
-            double fromStart = Distance(a.CursorX - first.CursorX, a.CursorY - first.CursorY);
+            if (a.RawMouseDeltaX.HasValue && a.RawMouseDeltaY.HasValue)
+            {
+                hasRaw = true;
+                double rawStep = Distance(a.RawMouseDeltaX.Value, a.RawMouseDeltaY.Value);
+                if (i > 0) rawPath += rawStep;
+                double rawDt = i > 0 ? a.Timestamp - s[i - 1].Timestamp : 0;
+                if (rawDt > 0) rawPeak = Math.Max(rawPeak, rawStep / rawDt);
+            }
+            double fromStart = cursorMode ? Distance(a.CursorX - first.CursorX, a.CursorY - first.CursorY) : rawPath;
             if (!moved && fromStart >= MovementThresholdPixels)
             { moved = true; reaction = elapsed * 1000; }
-            if (moved && t != null && acquisition == null &&
-                Math.Abs(a.CursorX - t.X) <= t.Width / 2 && Math.Abs(a.CursorY - t.Y) <= t.Height / 2)
+            if (!initiallyOnTarget && t != null && acquisition == null &&
+                Math.Abs(a.ReferenceX - t.X) <= t.Width / 2 && Math.Abs(a.ReferenceY - t.Y) <= t.Height / 2)
                 acquisition = elapsed * 1000;
             if (a.LeftClick && (i == 0 || !s[i - 1].LeftClick)) click = elapsed * 1000;
             if (i == 0) continue;
@@ -59,7 +71,7 @@ public sealed class FeatureExtractor
                 if (previousStep > .1) curvature += Math.Acos(Math.Clamp((px * dx + py * dy) / (previousStep * step), -1, 1));
             }
             if (t == null) { lastError = double.NaN; continue; }
-            double error = Distance(a.CursorX - t.X, a.CursorY - t.Y);
+            double error = Distance(a.ReferenceX - t.X, a.ReferenceY - t.Y);
             errorSum += error * dt;
             normalizedErrorSum += error / Math.Max(1, Math.Min(t.Width, t.Height) / 2) * dt;
             errorTime += dt;
@@ -89,7 +101,11 @@ public sealed class FeatureExtractor
         }
         double duration = s[^1].Timestamp - first.Timestamp;
         double direct = Distance(s[^1].CursorX - first.CursorX, s[^1].CursorY - first.CursorY);
-        metrics["ReactionTimeMs"] = reaction;
+        // Detection timestamps cannot establish cognitive reaction time.
+        metrics["ReactionTimeMs"] = null;
+        metrics["MovementOnsetLatencyMs"] = first.MotionBaselineValid == true ? reaction : null;
+        metrics["InitiallyOnTarget"] = initiallyOnTarget ? 1 : 0;
+        metrics["QuietBaselineValid"] = first.MotionBaselineValid == true ? 1 : 0;
         metrics["AcquisitionTimeMs"] = acquisition;
         metrics["PeakVelocityPxPerSecond"] = moved ? peak : null;
         metrics["AverageVelocityPxPerSecond"] = moved && duration > 0 ? path / duration : null;
@@ -108,6 +124,12 @@ public sealed class FeatureExtractor
         metrics["TrackingErrorVelocityRmsPxPerSecond"] = errorVelocityTime > 0 ? Math.Sqrt(errorVelocitySquared / errorVelocityTime) : null;
         // Time between targets requires cross-engagement ground truth; leave unavailable in V0.1.
         metrics["TargetSwitchTimeMs"] = null;
+        bool rawComplete = hasRaw && s.Count > 1 && s.Skip(1).All(a => a.RawMouseDeltaX.HasValue && a.RawMouseDeltaY.HasValue);
+        metrics["RawMousePathCounts"] = rawComplete ? rawPath : null;
+        metrics["RawMousePeakCountsPerSecond"] = rawComplete ? rawPeak : null;
+        if (!cursorMode)
+            foreach (string name in new[] { "PeakVelocityPxPerSecond", "AverageVelocityPxPerSecond", "PeakAccelerationPxPerSecond2", "PeakJerkPxPerSecond3", "PathLengthPx", "PathEfficiency", "PathCurvatureRadiansPerPx", "OvershootDistancePx", "OvershootRate", "CorrectionCount", "CorrectionAmplitudePx" })
+                metrics[name] = null;
         string context = target == null ? "Unknown" : Math.Min(target.Width, target.Height) < 30 ? "SmallTarget" : Math.Min(target.Width, target.Height) < 100 ? "MediumTarget" : "LargeTarget";
         return new(engagement.TargetId, context, engagement.EndReason, engagement.Truncated, metrics);
     }

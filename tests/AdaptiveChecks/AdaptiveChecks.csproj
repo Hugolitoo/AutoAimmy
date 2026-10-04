@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../Aimmy2/Adaptive/*.cs" Exclude="../../Aimmy2/Adaptive/ObservationSession.cs" Link="Adaptive/%(Filename)%(Extension)" />
+    <Compile Include="../../Aimmy2/Adaptive/*.cs" Exclude="../../Aimmy2/Adaptive/ObservationSession.cs;../../Aimmy2/Adaptive/RawMouseObserver.cs" Link="Adaptive/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

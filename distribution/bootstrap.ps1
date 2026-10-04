@@ -1,4 +1,4 @@
-param([ValidateSet('Launch','Update','Rollback','Export','Connect','Check')][string]$Action='Launch', [switch]$Offline)
+param([ValidateSet('Launch','Update','Rollback','Export','Connect','Check','Configure')][string]$Action='Launch', [switch]$Offline)
 $ErrorActionPreference = 'Stop'
 try {
     $root = $PSScriptRoot

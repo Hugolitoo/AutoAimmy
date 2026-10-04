@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Aimmy2.AILogic;
+using Aimmy2.Class;
 
 namespace Aimmy2.Adaptive;
 
@@ -13,6 +15,7 @@ public sealed record ObservationOptions
     public int DurationSeconds { get; init; } = 600;
     public int QueueCapacity { get; init; } = 8192;
     public string OutputDirectory { get; init; } = "sessions";
+    public AimReference AimReference { get; init; } = AimReference.ScreenCenter;
 }
 
 /// <summary>Configuration is latched for the process lifetime. Output remains blocked after recording ends.</summary>
@@ -26,11 +29,11 @@ public static class ObservationMode
         string path = Path.Combine(DataDirectory, "adaptive.json");
         if (!File.Exists(path)) return new();
         var options = JsonSerializer.Deserialize<ObservationOptions>(File.ReadAllText(path),
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true, Converters = { new JsonStringEnumConverter() } })
             ?? throw new InvalidDataException("adaptive.json is empty.");
         if (options.Enabled && !options.OfflineTrainerConfirmed)
             throw new InvalidDataException("Observation requires OfflineTrainerConfirmed=true.");
-        if (options.DurationSeconds is < 1 or > 3600 || options.QueueCapacity is < 128 or > 65536 || string.IsNullOrWhiteSpace(options.OutputDirectory))
+        if (!Enum.IsDefined(options.AimReference) || options.DurationSeconds is < 1 or > 3600 || options.QueueCapacity is < 128 or > 65536 || string.IsNullOrWhiteSpace(options.OutputDirectory))
             throw new InvalidDataException("Invalid observation duration, capacity or output directory.");
         return options;
     }
@@ -47,6 +50,7 @@ internal sealed class ObservationSession : IDisposable
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly GameplayRecorder recorder;
     private readonly Task sampler;
+    private readonly RawMouseObserver rawMouse = new();
     private TargetObservation? target;
     private TargetObservation? previousTarget;
     private long nextId;
@@ -58,7 +62,8 @@ internal sealed class ObservationSession : IDisposable
         var options = ObservationMode.Options;
         string root = Path.GetFullPath(options.OutputDirectory, ObservationMode.DataDirectory);
         recorder = new(Path.Combine(root, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8]), options.QueueCapacity,
-            Environment.GetEnvironmentVariable("AUTOAIMMY_VERSION") ?? typeof(ObservationSession).Assembly.GetName().Version?.ToString() ?? "development");
+            Environment.GetEnvironmentVariable("AUTOAIMMY_VERSION") ?? typeof(ObservationSession).Assembly.GetName().Version?.ToString() ?? "development",
+            new Dictionary<string, object?> { ["AimReference"] = options.AimReference.ToString(), ["RawMouseAvailable"] = rawMouse.TryRead(out _, out _, out _), ["RawMouseFailure"] = rawMouse.Failure, ["Calibration"] = "Uncalibrated counts; angular metrics unavailable", ["DetectionValidation"] = "Not confirmed" });
         sampler = Task.Run(SampleAsync);
         _ = sampler.ContinueWith(task =>
         {
@@ -72,7 +77,7 @@ internal sealed class ObservationSession : IDisposable
     }
 
     // Called under AIManager's inference gate; target snapshot is atomically published to the sampler.
-    public void UpdateTargets(IReadOnlyList<Prediction> predictions)
+    public Prediction? UpdateTargets(IReadOnlyList<Prediction> predictions)
     {
         double now = clock.Elapsed.TotalSeconds;
         Prediction? selected = null;
@@ -82,15 +87,22 @@ internal sealed class ObservationSession : IDisposable
                 .MinBy(p => Distance(p.ScreenCenterX - previousTarget.X, p.ScreenCenterY - previousTarget.Y));
         bool retained = selected != null;
         if (selected == null && GetCursorPos(out var cursor))
-            selected = predictions.MinBy(p => Distance(p.ScreenCenterX - cursor.X, p.ScreenCenterY - cursor.Y));
-        if (selected == null) { Interlocked.Exchange(ref target, null); return; }
+        {
+            var reference = GetReference(cursor);
+            selected = predictions.MinBy(p => Distance(p.ScreenCenterX - reference.X, p.ScreenCenterY - reference.Y));
+        }
+        if (selected == null) { Interlocked.Exchange(ref target, null); return null; }
         var snapshot = new TargetObservation(retained ? previousTarget!.Id : ++nextId,
             selected.ScreenCenterX, selected.ScreenCenterY, selected.Rectangle.Width, selected.Rectangle.Height,
             selected.Confidence, selected.ClassId, now);
         previousTarget = snapshot;
         Interlocked.Exchange(ref target, snapshot);
+        return selected;
     }
     private static double Distance(double x, double y) => Math.Sqrt(x * x + y * y);
+    private static (double X, double Y) GetReference(CursorPoint cursor) => ObservationMode.Options.AimReference == AimReference.ScreenCenter
+        ? (DisplayManager.ScreenLeft + DisplayManager.ScreenWidth / 2.0, DisplayManager.ScreenTop + DisplayManager.ScreenHeight / 2.0)
+        : (cursor.X, cursor.Y);
 
     private async Task SampleAsync()
     {
@@ -98,22 +110,37 @@ internal sealed class ObservationSession : IDisposable
         {
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(8));
             CursorPoint? previous = null;
+            long previousRawX = 0, previousRawY = 0;
+            bool previousRawAvailable = false;
+            double lastMotion = 0, baselineStart = clock.Elapsed.TotalSeconds;
             long sequence = 0;
             while (await timer.WaitForNextTickAsync(stop.Token).ConfigureAwait(false))
             {
                 double now = clock.Elapsed.TotalSeconds;
                 if (now >= ObservationMode.Options.DurationSeconds) break;
                 if (recorder.Completion.IsFaulted) await recorder.Completion.ConfigureAwait(false);
-                if (!GetCursorPos(out var point)) { previous = null; continue; }
+                if (!GetCursorPos(out var point)) { previous = null; baselineStart = now; previousRawAvailable = false; continue; }
+                bool rawAvailable = rawMouse.TryRead(out long rawX, out long rawY, out _);
+                double? rawDx = rawAvailable && previousRawAvailable ? rawX - previousRawX : null;
+                double? rawDy = rawAvailable && previousRawAvailable ? rawY - previousRawY : null;
+                double cursorDx = previous.HasValue ? point.X - previous.Value.X : 0;
+                double cursorDy = previous.HasValue ? point.Y - previous.Value.Y : 0;
+                bool motionKnown = ObservationMode.Options.AimReference == AimReference.Cursor ? previous.HasValue : rawDx.HasValue;
+                double motion = ObservationMode.Options.AimReference == AimReference.Cursor ? Distance(cursorDx, cursorDy) : Distance(rawDx ?? 0, rawDy ?? 0);
+                if (motion > 0) lastMotion = now;
+                bool baselineValid = motionKnown && now - baselineStart >= .2 && now - lastMotion >= .15;
+                var reference = GetReference(point);
                 var snapshot = Volatile.Read(ref target);
                 if (snapshot != null && now - snapshot.ObservedAt > .15) snapshot = null;
-                recorder.TryRecord(new(now, point.X, point.Y, previous.HasValue ? point.X - previous.Value.X : 0,
-                    previous.HasValue ? point.Y - previous.Value.Y : 0, (GetAsyncKeyState(1) & 0x8000) != 0, snapshot, ++sequence));
+                recorder.TryRecord(new(now, point.X, point.Y, cursorDx, cursorDy,
+                    (GetAsyncKeyState(1) & 0x8000) != 0, snapshot, ++sequence, ObservationMode.Options.AimReference,
+                    reference.X, reference.Y, rawDx, rawDy, MotionBaselineValid: baselineValid));
                 previous = point;
+                previousRawX = rawX; previousRawY = rawY; previousRawAvailable = rawAvailable;
             }
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
-        finally { await recorder.DisposeAsync().ConfigureAwait(false); }
+        finally { rawMouse.Dispose(); await recorder.DisposeAsync().ConfigureAwait(false); }
     }
 
     public void Dispose()

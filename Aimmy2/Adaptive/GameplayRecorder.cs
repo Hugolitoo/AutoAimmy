@@ -11,12 +11,14 @@ public sealed class GameplayRecorder : IAsyncDisposable
     private readonly Task worker;
     private long dropped;
     private readonly string appVersion;
+    private readonly IReadOnlyDictionary<string, object?>? telemetry;
     public long DroppedEvents => Interlocked.Read(ref dropped);
     public Task Completion => worker;
     public string DirectoryPath { get; }
-    public GameplayRecorder(string directory, int capacity = 8192, string appVersion = "development")
+    public GameplayRecorder(string directory, int capacity = 8192, string appVersion = "development", IReadOnlyDictionary<string, object?>? telemetry = null)
     {
         this.appVersion = appVersion;
+        this.telemetry = telemetry;
         DirectoryPath = directory;
         channel = Channel.CreateBounded<GameplayEvent>(new BoundedChannelOptions(capacity)
         { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
@@ -51,7 +53,7 @@ public sealed class GameplayRecorder : IAsyncDisposable
         var profile = analyzer.Analyze();
         await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "analysis.json"), JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
         await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "analysis.txt"), $"AutoAimmy version: {appVersion}\n" + SessionAnalyzer.Report(profile, DroppedEvents));
-        await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "quality.json"), JsonSerializer.Serialize(new { AppVersion = appVersion, DroppedEvents, Input = "DesktopCursorPolling", SampleIntervalMs = 8, TargetStaleAfterMs = 150 }));
+        await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "quality.json"), JsonSerializer.Serialize(new { AppVersion = appVersion, DroppedEvents, Input = "DesktopCursorPollingAndPassiveRawMouse", SampleIntervalMs = 8, TargetStaleAfterMs = 150, Telemetry = telemetry }));
     }
     public async ValueTask DisposeAsync()
     {

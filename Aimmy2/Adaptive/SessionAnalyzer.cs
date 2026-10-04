@@ -29,7 +29,7 @@ public sealed class SessionAnalyzer
         text.AppendLine($"Engagements: {profile.Engagements}; truncated: {profile.TruncatedEngagements}; dropped samples: {droppedEvents}");
         foreach (var (name, d) in profile.Metrics)
             text.AppendLine(d == null ? $"{name}: unavailable" : $"{name}: median {d.Median:F2}, p10–p90 {d.P10:F2}–{d.P90:F2}, mean {d.Mean:F2}, n={d.Count}");
-        text.AppendLine("Cursor telemetry only. Reaction is movement-onset latency after first detection, not cognitive reaction time. Clicks are not confirmed hits.");
+        text.AppendLine("Tracking uses the configured aim reference. Raw mouse counts are not pixels or angles. Movement onset requires a quiet pre-detection baseline; cognitive reaction time is unavailable. Initially overlapping targets have no acquisition latency. Clicks are not confirmed hits. Detection accuracy requires visual validation; this report does not rate the player.");
         return text.ToString();
     }
 }

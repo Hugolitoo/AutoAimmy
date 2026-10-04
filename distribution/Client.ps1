@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('Launch','Update','Rollback','Export','Connect','Check')][string]$Action = 'Launch', [switch]$Offline)
+param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('Launch','Update','Rollback','Export','Connect','Check','Configure')][string]$Action = 'Launch', [switch]$Offline)
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Updater.psm1') -Force
 $Root = [IO.Path]::GetFullPath($Root)
@@ -27,6 +27,16 @@ try {
     $state = Get-InstalledState $Root
     $versionDirectory = Join-Path $Root ('versions\' + $state.Current)
     $options = Get-Content -LiteralPath (Join-Path $Root 'data\adaptive.json') -Raw | ConvertFrom-Json
+    if ($Action -eq 'Configure' -or !$options.PSObject.Properties['AimReference']) {
+        Write-Host 'Reference du viseur dans votre trainer : 1 = curseur mobile ; 2 = centre de l ecran (plein ecran).'
+        $choice = Read-Host 'Choix (1 ou 2, Entree = 2)'
+        if ($choice -notin @('','1','2')) { throw 'Choix invalide : utilisez 1 ou 2.' }
+        $reference = if ($choice -eq '1') { 'Cursor' } else { 'ScreenCenter' }
+        $options | Add-Member -NotePropertyName AimReference -NotePropertyValue $reference -Force
+        $options | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Root 'data\adaptive.json') -Encoding UTF8
+        Write-Host "Reference enregistree : $reference. Selectionnez le bon moniteur dans Aimmy."
+    }
+    if ($Action -eq 'Configure') { return }
     if (!$options.Enabled -or !$options.OfflineTrainerConfirmed) { throw 'This distribution requires observation mode and offline trainer confirmation.' }
     $env:AUTOAIMMY_DATA_DIR = Join-Path $Root 'data'
     $env:AUTOAIMMY_VERSION = $state.Current

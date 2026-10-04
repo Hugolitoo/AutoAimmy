@@ -562,7 +562,10 @@ namespace Aimmy2.AILogic
                                     }
 
                                     if (ObservationMode.BlocksOutput)
+                                    {
+                                        UpdateObservationOverlay(closestPrediction);
                                         continue;
+                                    }
 
                                     if (closestPrediction == null)
                                     {
@@ -825,6 +828,27 @@ namespace Aimmy2.AILogic
             });
         }
 
+        // Visual validation only; never calls aim coordinates or mouse output.
+        private void UpdateObservationOverlay(Prediction? prediction)
+        {
+            var overlay = Dictionary.DetectedPlayerOverlay;
+            if (overlay == null || !AimSettings.ShowDetectedPlayer) return;
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                overlay.DetectedTracers.Opacity = 0;
+                overlay.DetectedPlayerConfidence.Opacity = 0;
+                overlay.DetectedPlayerFocus.Opacity = prediction == null ? 0 : 1;
+                if (prediction == null) return;
+                double sx = WinAPICaller.scalingFactorX, sy = WinAPICaller.scalingFactorY;
+                overlay.Opacity = AimSettings.OverlayOpacity;
+                overlay.DetectedPlayerFocus.Margin = new Thickness(
+                    (prediction.ScreenCenterX - prediction.Rectangle.Width / 2 - DisplayManager.ScreenLeft) / sx,
+                    (prediction.ScreenCenterY - prediction.Rectangle.Height / 2 - DisplayManager.ScreenTop) / sy, 0, 0);
+                overlay.DetectedPlayerFocus.Width = prediction.Rectangle.Width / sx;
+                overlay.DetectedPlayerFocus.Height = prediction.Rectangle.Height / sy;
+            });
+        }
+
         private void CalculateCoordinates(DetectedPlayerWindow DetectedPlayerOverlay, Prediction closestPrediction, float scaleX, float scaleY)
         {
             AIConf = closestPrediction.Confidence;
@@ -1046,8 +1070,7 @@ namespace Aimmy2.AILogic
 
                 if (ObservationMode.BlocksOutput && !_benchmarkMode)
                 {
-                    _observation?.UpdateTargets(KDPredictions);
-                    return null;
+                    return _observation?.UpdateTargets(KDPredictions);
                 }
 
                 if (KDPredictions.Count == 0)

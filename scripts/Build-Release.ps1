@@ -49,7 +49,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $projectRoot 'adaptive.example.json') -Destination (Join-Path $dataDirectory 'adaptive.json')
     $commands = [ordered]@{
         'AutoAimmy.cmd'=''; 'AutoAimmy-hors-ligne.cmd'='-Offline'; 'Mettre-a-jour.cmd'='-Action Update';
-        'Retour-version-precedente.cmd'='-Action Rollback'; 'Exporter-rapport.cmd'='-Action Export'; 'Connexion-GitHub.cmd'='-Action Connect'
+        'Retour-version-precedente.cmd'='-Action Rollback'; 'Exporter-rapport.cmd'='-Action Export'; 'Connexion-GitHub.cmd'='-Action Connect'; 'Configurer-viseur.cmd'='-Action Configure -Offline'
     }
     foreach ($name in $commands.Keys) {
         $text = '@echo off' + "`r`n" + 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0bootstrap.ps1" ' + $commands[$name] + "`r`n" + 'if errorlevel 1 pause' + "`r`n"

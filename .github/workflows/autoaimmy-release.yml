@@ -27,6 +27,9 @@ jobs:
       - name: Validate updater
         shell: powershell
         run: ./tests/UpdaterChecks.ps1
+      - name: Validate passive Windows observer
+        shell: powershell
+        run: dotnet run --project tests/WindowsObserverChecks/WindowsObserverChecks.csproj -c Release
       - name: Build tested self-contained distribution
         shell: powershell
         env:
