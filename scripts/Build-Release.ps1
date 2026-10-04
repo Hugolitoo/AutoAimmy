@@ -56,6 +56,14 @@ try {
         if ($name -ne 'AutoAimmy.cmd' -and $name -ne 'AutoAimmy-hors-ligne.cmd') { $text += 'pause' + "`r`n" }
         [IO.File]::WriteAllText((Join-Path $installRoot $name), $text, [Text.Encoding]::ASCII)
     }
+    $repairScript = [IO.File]::ReadAllText((Join-Path $projectRoot 'distribution\Repair-Updater.ps1'))
+    $repairEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($repairScript))
+    $repairCommand = '@echo off' + "`r`nsetlocal`r`n" + 'set "AUTOAIMMY_REPAIR_ROOT=%~dp0"' + "`r`n" +
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + $repairEncoded + "`r`n" +
+        'if errorlevel 1 (pause & exit /b 1)' + "`r`n" +
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0bootstrap.ps1" -Action Update' + "`r`npause`r`n"
+    [IO.File]::WriteAllText((Join-Path $releaseRoot 'Reparer-mise-a-jour.cmd'), $repairCommand, [Text.Encoding]::ASCII)
+    Copy-Item -LiteralPath (Join-Path $releaseRoot 'Reparer-mise-a-jour.cmd') -Destination $installRoot
     $installerZip = Join-Path $releaseRoot 'AutoAimmy-win-x64.zip'
     Compress-Archive -LiteralPath $installRoot -DestinationPath $installerZip -CompressionLevel Optimal
     Write-Host "Ready to send: $installerZip"

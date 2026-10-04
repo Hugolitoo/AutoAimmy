@@ -58,7 +58,9 @@ function Get-RemoteUpdate {
     if ($config.Channel -notin @('test', 'stable')) { throw 'Invalid release channel.' }
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $uri = 'https://api.github.com/repos/' + $config.Repository + '/releases?per_page=30'
-    $releases = @(Invoke-RestMethod -Uri $uri -Headers (Get-UpdateHeaders $Root) -TimeoutSec 15)
+    # Assign the JSON array directly. @() around Invoke-RestMethod nests its array;
+    # projected .draft then evaluates true once there are multiple releases.
+    $releases = Invoke-RestMethod -Uri $uri -Headers (Get-UpdateHeaders $Root) -TimeoutSec 15
     $compatible = @($releases | Where-Object {
         !$_.draft -and ($config.Channel -eq 'test' -or !$_.prerelease) -and $_.tag_name -match '^v\d+\.\d+\.\d+(\.\d+)?$'
     } | Sort-Object { [version]$_.tag_name.Substring(1) } -Descending)

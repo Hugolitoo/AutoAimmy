@@ -8,6 +8,8 @@ Add your offline trainer's ONNX model to `data/bin/models`. Recording starts whe
 
 Updates are offered before launch. Player settings, models and sessions remain in `data`, separate from application versions. Use **AutoAimmy-hors-ligne.cmd** to skip networking, **Retour-version-precedente.cmd** to roll back, and **Exporter-rapport.cmd** to export the latest report. Reports are never automatically uploaded.
 
+For an existing 0.1.1 or 0.1.2 installation, version 0.1.3 fixes discovery when GitHub returns multiple releases. Download **Reparer-mise-a-jour.cmd** from the release assets, put it beside your existing AutoAimmy.cmd, close the app and run the repair. It backs up the old updater, changes only the faulty release-array assignment, then offers the normal update. No reinstallation or player-data transfer is needed.
+
 The report leaves cognitive reaction time and uncalibrated angular metrics unavailable. See [measurement corrections](docs/Reticle-V0.1.2.md). Adaptive assistance and model training are future work.
 
 See [distribution instructions](docs/Distribution.md) and [analyzer architecture](docs/Adaptive-V0.1.md). Contributions and redistribution must respect the upstream [PolyForm Noncommercial license](LICENSE) and [source-available notice](SourceAvailable.md).

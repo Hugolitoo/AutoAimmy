@@ -18,6 +18,27 @@ $null = New-Item -ItemType Directory -Path (Join-Path $root 'data\sessions') -Fo
 Set-Content -LiteralPath (Join-Path $root 'data\player.txt') -Value 'KEEP PLAYER DATA'
 Set-Content -LiteralPath (Join-Path $root 'versions\0.1.0\YmmiaV2.exe') -Value 'fixture'
 @{Current='0.1.0'; Previous=$null} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'current.json')
+@{Repository='Hugolitoo/AutoAimmy';Channel='test'} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'updater.json')
+$selection = & (Get-Module Updater) {
+    param($fixtureRoot)
+    function script:Invoke-RestMethod {
+        param($Uri, $Headers, $TimeoutSec)
+        # Match Invoke-RestMethod: one pipeline result containing a JSON array.
+        return , @(
+            [pscustomobject]@{draft=$false;prerelease=$true;tag_name='v0.1.2';assets=@([pscustomobject]@{name='AutoAimmy-update-win-x64.zip'},[pscustomobject]@{name='manifest.json'})},
+            [pscustomobject]@{draft=$false;prerelease=$false;tag_name='v0.1.1';assets=@([pscustomobject]@{name='AutoAimmy-update-win-x64.zip'},[pscustomobject]@{name='manifest.json'})},
+            [pscustomobject]@{draft=$true;prerelease=$false;tag_name='v9.0.0';assets=@()}
+        )
+    }
+    try {
+        $test = Get-RemoteUpdate $fixtureRoot
+        @{Repository='Hugolitoo/AutoAimmy';Channel='stable'} | ConvertTo-Json | Set-Content (Join-Path $fixtureRoot 'updater.json')
+        $stable = Get-RemoteUpdate $fixtureRoot
+        [pscustomobject]@{Test=$test.Version;Stable=$stable.Version}
+    } finally { Remove-Item -LiteralPath Function:script:Invoke-RestMethod }
+} $root
+Assert-Check ($selection.Test -eq '0.1.2') 'multiple release JSON array selects latest prerelease'
+Assert-Check ($selection.Stable -eq '0.1.1') 'multiple release JSON array filters drafts and prereleases'
 $payload = Join-Path $fixture 'payload'
 $null = New-Item -ItemType Directory -Path $payload
 foreach ($file in @('YmmiaV2.exe','YmmiaV2.dll','Client.ps1','Updater.psm1')) { Set-Content -LiteralPath (Join-Path $payload $file) -Value 'fixture only - never execute' }

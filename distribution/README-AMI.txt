@@ -19,6 +19,9 @@ ou modifier AimReference dans data\adaptive.json pour une ancienne installation.
 1 = curseur mobile ; 2 = viseur fixe au centre. Aucun reglage angulaire n'est devine.
 
 Une nouvelle version est proposee au demarrage si GitHub est accessible.
+Installation 0.1.1 ou 0.1.2 : telecharger Reparer-mise-a-jour.cmd depuis la release 0.1.3,
+le mettre a cote de l'ancien AutoAimmy.cmd, fermer Aimmy puis double-cliquer la reparation.
+Une sauvegarde de l'updater est conservee. Accepter la mise a jour, puis relancer AutoAimmy.cmd.
 Sans Internet, utiliser AutoAimmy-hors-ligne.cmd.
 Pour revenir a la version precedente : fermer AutoAimmy puis Retour-version-precedente.cmd.
 Apres un retour en arriere, utiliser le lancement hors ligne pour ne pas reprendre la mise a jour.
