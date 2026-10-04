@@ -1,0 +1,7 @@
+{
+  "Enabled": true,
+  "OfflineTrainerConfirmed": true,
+  "DurationSeconds": 600,
+  "QueueCapacity": 8192,
+  "OutputDirectory": "sessions"
+}

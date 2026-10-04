@@ -1,0 +1,49 @@
+name: AutoAimmy release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Numeric release version (example: 0.1.2)'
+        required: true
+        type: string
+      channel:
+        description: Release channel
+        default: test
+        type: choice
+        options: [test, stable]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Validate updater
+        shell: powershell
+        run: ./tests/UpdaterChecks.ps1
+      - name: Build tested self-contained distribution
+        shell: powershell
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: ./scripts/Build-Release.ps1 -Version $env:RELEASE_VERSION -Channel $env:RELEASE_CHANNEL -Repository $env:RELEASE_REPOSITORY
+      - name: Publish release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          $assets = @("artifacts/$env:RELEASE_VERSION/AutoAimmy-win-x64.zip", "artifacts/$env:RELEASE_VERSION/AutoAimmy-update-win-x64.zip", "artifacts/$env:RELEASE_VERSION/manifest.json")
+          $arguments = @('release', 'create', "v$env:RELEASE_VERSION", '--repo', $env:RELEASE_REPOSITORY, '--target', '${{ github.sha }}', '--title', "AutoAimmy $env:RELEASE_VERSION", '--notes', 'Offline aim-trainer observation build. Download AutoAimmy-win-x64.zip for the first installation. Existing installations use the updater. Personal data is not included.')
+          if ($env:RELEASE_CHANNEL -eq 'test') { $arguments += '--prerelease' }
+          & gh @arguments @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

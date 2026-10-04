@@ -1,0 +1,135 @@
+diff --git a/Aimmy2/AILogic/AIManager.cs b/Aimmy2/AILogic/AIManager.cs
+index dc178b9..31d63c3 100644
+--- a/Aimmy2/AILogic/AIManager.cs
++++ b/Aimmy2/AILogic/AIManager.cs
+@@ -1,4 +1,5 @@
+-﻿using AILogic;
++using Aimmy2.Adaptive;
++using AILogic;
+ using Aimmy2.Class;
+ using Class;
+ using InputLogic;
+@@ -88,6 +89,7 @@ namespace Aimmy2.AILogic
+         private volatile bool _lastPredictionRanInference;
+         private readonly SemaphoreSlim _inferenceGate = new(1, 1);
+         private bool _disposed;
++        private ObservationSession? _observation;
+ 
+         // For Auto-Labelling Data System
+         private bool PlayerFound = false;
+@@ -494,6 +496,12 @@ namespace Aimmy2.AILogic
+             {
+             }
+ 
++            if (ObservationMode.BlocksOutput)
++            {
++                _observation = new ObservationSession();
++                Application.Current.Dispatcher.BeginInvoke(new Action(() =>
++                    Log(LogLevel.Info, "OBSERVING: mouse output blocked for this process. Desktop cursor telemetry only.", true, 5000)));
++            }
+             Stopwatch stopwatch = new();
+             DetectedPlayerWindow? DetectedPlayerOverlay = Dictionary.DetectedPlayerOverlay;
+ 
+@@ -525,13 +533,19 @@ namespace Aimmy2.AILogic
+ 
+                         _captureManager.HandlePendingDisplayChanges();
+ 
++                        if (ObservationMode.BlocksOutput && _observation?.IsRecording == false)
++                        {
++                            await Task.Delay(100, cancellationToken);
++                            continue;
++                        }
++
+                         using (Benchmark("AILoopIteration"))
+                         {
+                             UpdateFOV();
+ 
+-                            if (ShouldProcess())
++                            if (ObservationMode.BlocksOutput || ShouldProcess())
+                             {
+-                                if (ShouldPredict())
++                                if (ObservationMode.BlocksOutput || ShouldPredict())
+                                 {
+                                     Prediction? closestPrediction;
+                                     using (Benchmark("GetClosestPrediction"))
+@@ -547,6 +561,9 @@ namespace Aimmy2.AILogic
+                                         }
+                                     }
+ 
++                                    if (ObservationMode.BlocksOutput)
++                                        continue;
++
+                                     if (closestPrediction == null)
+                                     {
+                                         DisableOverlay(DetectedPlayerOverlay!);
+@@ -1027,6 +1044,12 @@ namespace Aimmy2.AILogic
+                         fovMaxY);
+                 }
+ 
++                if (ObservationMode.BlocksOutput && !_benchmarkMode)
++                {
++                    _observation?.UpdateTargets(KDPredictions);
++                    return null;
++                }
++
+                 if (KDPredictions.Count == 0)
+                 {
+                     SaveFrame(frame);
+@@ -1514,6 +1537,7 @@ namespace Aimmy2.AILogic
+ 
+         private void SaveFrame(Bitmap frame, Prediction? DoLabel = null)
+         {
++            if (ObservationMode.BlocksOutput) return;
+             if (_suppressOutputActions)
+                 return;
+ 
+@@ -1612,6 +1636,8 @@ namespace Aimmy2.AILogic
+             }
+ 
+             StopAiLoop();
++            try { _observation?.Dispose(); }
++            catch (Exception ex) { Log(LogLevel.Error, $"Observation export failed: {ex.Message}"); }
+ 
+             // Print final benchmarks
+             PrintBenchmarks();
+diff --git a/Aimmy2/InputLogic/MouseManager.cs b/Aimmy2/InputLogic/MouseManager.cs
+index fca1f45..a530d66 100644
+--- a/Aimmy2/InputLogic/MouseManager.cs
++++ b/Aimmy2/InputLogic/MouseManager.cs
+@@ -1,3 +1,4 @@
++using Aimmy2.Adaptive;
+ using Aimmy2.Class;
+ using Aimmy2.MouseMovementLibraries.GHubSupport;
+ using Class;
+@@ -68,6 +69,7 @@ namespace InputLogic
+ 
+         public static async Task DoTriggerClick(RectangleF? detectionBox = null)
+         {
++            if (ObservationMode.BlocksOutput) return;
+             // there was a toggle for this, but i realized if it was off, it would never stop spraying. - T
+             if (!(InputBindingManager.IsHoldingBinding("Aim Keybind") || InputBindingManager.IsHoldingBinding("Second Aim Keybind")))
+             {
+@@ -115,6 +117,7 @@ namespace InputLogic
+         #region Spray Mode Methods
+         public static void HoldMouseButton()
+         {
++            if (ObservationMode.BlocksOutput) return;
+             if (isSpraying) return;
+ 
+             var (mouseDown, _) = GetMouseActions();
+@@ -124,6 +127,7 @@ namespace InputLogic
+ 
+         public static void ReleaseMouseButton()
+         {
++            if (ObservationMode.BlocksOutput) return;
+             if (!isSpraying) return;
+ 
+             var (_, mouseUp) = GetMouseActions();
+@@ -142,6 +146,7 @@ namespace InputLogic
+ 
+         public static void MoveCrosshair(int detectedX, int detectedY)
+         {
++            if (ObservationMode.BlocksOutput) return;
+             int halfScreenWidth = (int)ScreenWidth / 2;
+             int halfScreenHeight = (int)ScreenHeight / 2;
+ 
