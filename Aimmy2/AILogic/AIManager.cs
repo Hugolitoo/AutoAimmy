@@ -90,6 +90,7 @@ namespace Aimmy2.AILogic
         private readonly SemaphoreSlim _inferenceGate = new(1, 1);
         private bool _disposed;
         private ObservationSession? _observation;
+        internal ObservationSession? Observation => _observation;
 
         // For Auto-Labelling Data System
         private bool PlayerFound = false;

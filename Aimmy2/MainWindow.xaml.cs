@@ -71,7 +71,7 @@ namespace Aimmy2
         private bool _performanceHelperOpen;
 
         // Menu names constant
-        private static readonly string[] MenuNames = { "AimMenu", "ModelMenu", "SettingsMenu", "AboutMenu" };
+        private static readonly string[] MenuNames = { "AimMenu", "ModelMenu", "SettingsMenu", "AboutMenu", "AutoAimmyMenu" };
 
         #endregion
 
@@ -129,6 +129,15 @@ namespace Aimmy2
 
         private void LoadInitialMenu()
         {
+            if (Aimmy2.Adaptive.ObservationMode.BlocksOutput)
+            {
+                LoadMenu("AutoAimmyMenu");
+                _currentMenu = "AutoAimmyMenu";
+                MenuHighlighter.Margin = AutoAimmyMenuButton.Margin;
+                Width = Math.Max(Width, 800);
+                Height = Math.Max(Height, 640);
+                return;
+            }
             LoadMenu("AimMenu");
             // Don't call UpdateSliderVisibility here - it would override collapsed menu states
             // Visibility is handled by the toggle click actions when user interacts with toggles
@@ -697,6 +706,7 @@ namespace Aimmy2
             "ModelMenu" => new ModelMenuControl(),
             "SettingsMenu" => new SettingsMenuControl(),
             "AboutMenu" => new AboutMenuControl(),
+            "AutoAimmyMenu" => new AutoAimmyMenuControl(),
             _ => throw new ArgumentException($"Unknown menu: {menuName}")
         };
 
@@ -751,6 +761,7 @@ namespace Aimmy2
                 ModelMenuControl model => model.ModelMenuScrollViewer,
                 SettingsMenuControl settings => settings.SettingsMenuScrollViewer,
                 AboutMenuControl about => about.AboutMenuScrollViewer,
+                AutoAimmyMenuControl auto => auto.DashboardScrollViewer,
                 _ => CurrentScrollViewer
             };
         }

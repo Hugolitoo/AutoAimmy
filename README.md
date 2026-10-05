@@ -1,5 +1,7 @@
 # AutoAimmy
 
+Version 0.1.7 adds an AutoAimmy page inside the app and opens it by default in observation mode. It shows the import result (including Imported), saved settings, unknown context, current model, observation progress and latest report. Settings can be reread without a questionnaire when no recording is in progress; model and report folders can be opened directly.
+
 Version 0.1.6 removes the required profile questionnaire. Saved R6 settings are read automatically from GameSettings.ini on every launch: horizontal/vertical sensitivity, ADS values by magnification, multipliers, FOV, resolution and the aspect-ratio enum. Profil-joueur.cmd refreshes and displays the import without asking for settings. Hardware DPI, equipped weapon/scope and actual ADS state remain unknown; missing or ambiguous account settings are never guessed. Each report records SettingsFile provenance and the configuration file timestamp without account paths or identifiers. See [automatic settings](docs/Player-profiles.md).
 
 Experimental, observation-only gameplay analyzer for **offline aim trainers and sandboxes**. Noncommercial fork of [Aimmy](https://github.com/Babyhamsta/Aimmy).

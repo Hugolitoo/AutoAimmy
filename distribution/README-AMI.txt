@@ -1,9 +1,13 @@
-AUTOAIMMY 0.1.6 — OBSERVATION / REGLAGES AUTOMATIQUES
+AUTOAIMMY 0.1.7 — PAGE AUTOAIMMY / REGLAGES AUTOMATIQUES
 
 1. Extraire TOUT le ZIP dans un dossier, par exemple Documents\AutoAimmy.
 2. Double-cliquer AutoAimmy.cmd. Aucun SDK ni runtime a installer.
    Aucun questionnaire : les reglages R6 sont lus depuis GameSettings.ini dans Documents.
    Profil-joueur.cmd relit et affiche ces reglages, sans saisie manuelle.
+   La page AutoAimmy affiche maintenant Imported et les reglages dans l'application.
+   Le bouton AUTO dans la barre de gauche ouvre cette page.
+   Relire les reglages R6 : actualiser sans questionnaire, hors enregistrement.
+   Ouvrir les modeles / rapports : acceder directement aux dossiers utiles.
 3. Mettre le modele ONNX dans data\bin\models puis le charger dans l'application.
 4. Choisir le moniteur utilise et verifier que les cadres suivent les bonnes cibles.
 5. Jouer la session de test contre les IA puis fermer normalement AutoAimmy.

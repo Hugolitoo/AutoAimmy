@@ -22,6 +22,8 @@ public sealed record ObservationOptions
 public static class ObservationMode
 {
     public static string DataDirectory => Environment.GetEnvironmentVariable("AUTOAIMMY_DATA_DIR") ?? AppContext.BaseDirectory;
+    public static string ExportDirectory => Environment.GetEnvironmentVariable("AUTOAIMMY_DATA_DIR") is string data
+        ? Path.GetFullPath(Path.Combine(data, "..", "exports")) : Path.Combine(DataDirectory, "exports");
     public static ObservationOptions Options { get; } = Load();
     public static bool BlocksOutput => Options.Enabled;
     private static ObservationOptions Load()
@@ -56,18 +58,23 @@ internal sealed class ObservationSession : IDisposable
     private long nextId;
     private int disposed;
     public bool IsRecording => !sampler.IsCompleted;
+    public bool HasFailed => sampler.IsFaulted;
+    public string? Failure => sampler.Exception?.GetBaseException().Message;
+    public double ElapsedSeconds => Math.Min(clock.Elapsed.TotalSeconds, ObservationMode.Options.DurationSeconds);
+    public string SessionDirectory => recorder.DirectoryPath;
+    public string? ReportPath => recorder.ExportPath;
+    public string? ExportFailure => recorder.ExportError;
+    public PlayerSessionContext Context { get; }
 
     public ObservationSession()
     {
         var options = ObservationMode.Options;
         string root = Path.GetFullPath(options.OutputDirectory, ObservationMode.DataDirectory);
+        Context = PlayerSessionContext.Load(ObservationMode.DataDirectory);
         recorder = new(Path.Combine(root, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8]), options.QueueCapacity,
             Environment.GetEnvironmentVariable("AUTOAIMMY_VERSION") ?? typeof(ObservationSession).Assembly.GetName().Version?.ToString() ?? "development",
             new Dictionary<string, object?> { ["AimReference"] = options.AimReference.ToString(), ["RawMouseAvailable"] = rawMouse.TryRead(out _, out _, out _), ["RawMouseFailure"] = rawMouse.Failure, ["Calibration"] = "Uncalibrated counts; angular metrics unavailable", ["DetectionValidation"] = "Not confirmed" },
-            PlayerSessionContext.Load(ObservationMode.DataDirectory),
-            Environment.GetEnvironmentVariable("AUTOAIMMY_DATA_DIR") is string data
-                ? Path.GetFullPath(Path.Combine(data, "..", "exports"))
-                : Path.Combine(ObservationMode.DataDirectory, "exports"));
+            Context, ObservationMode.ExportDirectory);
         sampler = Task.Run(SampleAsync);
         _ = sampler.ContinueWith(task =>
         {
