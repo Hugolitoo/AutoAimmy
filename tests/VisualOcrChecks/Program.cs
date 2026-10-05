@@ -2,6 +2,11 @@ using System.Drawing;
 using System.Reflection;
 using Aimmy2.Adaptive;
 
+if (args.Contains("--resources"))
+{
+    Console.WriteLine(string.Join("\n", typeof(GameplayEvent).Assembly.GetManifestResourceNames().Where(n=>n.Contains("winrt",StringComparison.OrdinalIgnoreCase) || n.Contains("windows.sdk",StringComparison.OrdinalIgnoreCase))));
+    return;
+}
 using var bitmap = new Bitmap(850, 300);
 using (var graphics = Graphics.FromImage(bitmap))
 {
@@ -27,3 +32,4 @@ if (args.Contains("--live-probe"))
     if (observed.Status == "Unavailable") throw new Exception("Actual HUD reader unavailable: " + observed.Detail);
     Console.WriteLine("PASS: live reader foreground gating/capture executes without storing images or transcripts.");
 }
+
