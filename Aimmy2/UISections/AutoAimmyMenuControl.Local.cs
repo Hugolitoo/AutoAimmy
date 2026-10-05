@@ -58,7 +58,10 @@ public partial class AutoAimmyMenuControl
 
     private async Task RefreshLearningAsync(bool import = false)
     {
-        if (inspecting) return;
+        // A user-requested import must not disappear behind the periodic status refresh.
+        // Yield the UI thread until that earlier inspection finishes, then do the import.
+        if (inspecting && !import) return;
+        while (inspecting) await Task.Delay(25);
         inspecting = true;
         lastLearningRefresh = DateTime.UtcNow;
         try
@@ -120,7 +123,7 @@ public partial class AutoAimmyMenuControl
             string[] classes = global::Other.FileManager.AIManager?.ModelClasses.OrderBy(p => p.Key).Select(p => p.Value).ToArray() ?? new[] { "enemy" };
             var review = new LearningReviewWindow(learning, classes) { Owner = Window.GetWindow(this) };
             review.ShowDialog();
-            await RefreshLearningAsync();
+            await RefreshLearningAsync(import: true);
         }
         catch (Exception error) { LearningActionText.Text = error.Message; }
         finally { learningBusy = false; RefreshView(); }
