@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Threading.Channels;
 
@@ -13,14 +14,18 @@ public sealed class GameplayRecorder : IAsyncDisposable
     private readonly string appVersion;
     private readonly IReadOnlyDictionary<string, object?>? telemetry;
     private readonly PlayerSessionContext? sessionContext;
+    private readonly string? reportExportDirectory;
+    public string? ExportPath { get; private set; }
+    public string? ExportError { get; private set; }
     public long DroppedEvents => Interlocked.Read(ref dropped);
     public Task Completion => worker;
     public string DirectoryPath { get; }
-    public GameplayRecorder(string directory, int capacity = 8192, string appVersion = "development", IReadOnlyDictionary<string, object?>? telemetry = null, PlayerSessionContext? sessionContext = null)
+    public GameplayRecorder(string directory, int capacity = 8192, string appVersion = "development", IReadOnlyDictionary<string, object?>? telemetry = null, PlayerSessionContext? sessionContext = null, string? reportExportDirectory = null)
     {
         this.appVersion = appVersion;
         this.telemetry = telemetry;
         this.sessionContext = sessionContext;
+        this.reportExportDirectory = reportExportDirectory;
         DirectoryPath = directory;
         channel = Channel.CreateBounded<GameplayEvent>(new BoundedChannelOptions(capacity)
         { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
@@ -59,6 +64,35 @@ public sealed class GameplayRecorder : IAsyncDisposable
         string contextText = sessionContext == null ? "" : $"Declared player profile: {sessionContext.Settings?.Label ?? sessionContext.Status}; weapon: {sessionContext.Settings?.Weapon ?? "unknown"}; scope: {sessionContext.Settings?.Scope ?? "unknown"}. Actual ADS state is unobserved. See context.json.\n";
         await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "analysis.txt"), $"AutoAimmy version: {appVersion}\n" + contextText + SessionAnalyzer.Report(profile, DroppedEvents));
         await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "quality.json"), JsonSerializer.Serialize(new { AppVersion = appVersion, DroppedEvents, Input = "DesktopCursorPollingAndPassiveRawMouse", SampleIntervalMs = 8, TargetStaleAfterMs = 150, Telemetry = telemetry }));
+        // Complete buffered files before creating the local, whitelisted report.
+        events.Close();
+        engagements.Close();
+        if (reportExportDirectory != null)
+        {
+            string? temporary = null;
+            try
+            {
+                Directory.CreateDirectory(reportExportDirectory);
+                string name = "AutoAimmy-report-" + new DirectoryInfo(DirectoryPath).Name;
+                string destination = Path.Combine(reportExportDirectory, name + ".zip");
+                if (File.Exists(destination)) destination = Path.Combine(reportExportDirectory, name + "-" + Guid.NewGuid().ToString("N") + ".zip");
+                temporary = Path.Combine(reportExportDirectory, Guid.NewGuid().ToString("N") + ".tmp");
+                using (var archive = ZipFile.Open(temporary, ZipArchiveMode.Create))
+                    foreach (string file in new[] { "analysis.json", "analysis.txt", "quality.json", "engagements.jsonl", "context.json" })
+                    {
+                        string source = Path.Combine(DirectoryPath, file);
+                        if (File.Exists(source)) archive.CreateEntryFromFile(source, file);
+                    }
+                File.Move(temporary, destination);
+                ExportPath = destination;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // Export failure must not invalidate the recorded session; manual export remains available.
+                ExportError = error.Message;
+            }
+            finally { if (temporary != null && File.Exists(temporary)) File.Delete(temporary); }
+        }
     }
     public async ValueTask DisposeAsync()
     {

@@ -19,3 +19,11 @@ Ces donnees sont declarees par le joueur. Un DPI, une arme ou une lunette ne son
 5. Pour la prochaine etape visuelle, fournir une courte video avec HUD et transitions ADS/sans ADS : les anciens rapports ne contiennent pas ces images et ne suffisent pas a valider un detecteur visuel.
 
 Pour une ancienne installation, mettre a jour puis fermer et relancer AutoAimmy.cmd. Le nouveau client cree automatiquement Profil-joueur.cmd, meme si le bootstrap de l'ancienne installation ne connait pas cette action.
+
+## Automatisation — 0.1.5
+
+Le client recree Profil-joueur.cmd a chaque action, y compris Mettre-a-jour.cmd. Une installation qui vient de la 0.1.4 doit relancer AutoAimmy.cmd une fois pour executer le nouveau client. Les mises a jour suivantes se font sans question supplementaire ; le lancement hors ligne permet de rester sur une version.
+
+Le choix C reprend le profil actif dans un nouveau profil et conserve DPI, sensibilites generales, FOV, ratio, resolution et usage declare. Seuls nom, arme, lunette et sensibilite ADS sont demandes. Le profil original reste intact. Verifier les valeurs reprises avant de jouer si les reglages generaux ont change.
+
+Le rapport ZIP est cree automatiquement dans exports quand l'observation se termine ou quand l'application est fermee normalement. Il contient les memes cinq fichiers autorises que l'export manuel, sans evenements bruts ni tous les profils. Les fichiers de session sont preserves si la creation du ZIP echoue ; Exporter-rapport.cmd permet de reessayer. Aucun envoi automatique, aucune reconnaissance visuelle d'arme ou d'ADS ajoutee dans cette version.

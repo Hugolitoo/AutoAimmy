@@ -21,6 +21,11 @@ $result = & (Get-Module PlayerProfiles) {
         Install-ProfileShortcut $fixture
         if (!(Test-Path -LiteralPath (Join-Path $fixture 'Profil-joueur.cmd'))) { throw 'Shortcut missing' }
         if (@(Get-ChildItem -LiteralPath (Join-Path $fixture 'data\profiles') -Filter '*.json').Count -ne 1) { throw 'Saved profile overwritten' }
+        foreach ($value in @('C','Test other scope','Other weapon','1x','34')) { $script:answers.Enqueue($value) }
+        $copied = Invoke-PlayerProfileMenu $fixture
+        if ($copied.Id -eq $created.Id -or $copied.Dpi -ne 1600 -or $copied.HorizontalSensitivity -ne 3 -or $copied.Resolution -ne '1920x1080' -or $copied.Scope -ne '1x' -or $copied.AdsSensitivity -ne 34) { throw 'Profile copy lost shared settings or reused identity' }
+        if ((Get-Content (Join-Path $fixture ('data\profiles\' + $created.Id + '.json')) -Raw | ConvertFrom-Json).Scope -ne '2.5x') { throw 'Profile copy changed original' }
+        $null = Initialize-PlayerProfile $fixture
         'PASS: first setup, numeric validation, launch reuse without questions, unknown values, saved selection and shortcut.'
     } finally { Remove-Item -LiteralPath Function:script:Read-Host }
 } $root

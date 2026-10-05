@@ -117,3 +117,21 @@ await File.WriteAllTextAsync(settingsPath, "broken JSON");
 Check(PlayerSessionContext.Load(settingsDirectory).Status == "InvalidProfile", "malformed profile reported as invalid");
 Console.WriteLine($"PASS: {checks} total checks including session context.");
 
+string automaticExports = Path.Combine(temp, "exports");
+var automaticRecorder = new GameplayRecorder(Path.Combine(temp, "automatic"), sessionContext: snapshot, reportExportDirectory: automaticExports);
+foreach (var sample in trajectory) automaticRecorder.TryRecord(sample);
+await automaticRecorder.DisposeAsync();
+Check(automaticRecorder.ExportPath != null && automaticRecorder.ExportError == null, "automatic report created after recorder drains");
+using (var zip = System.IO.Compression.ZipFile.OpenRead(automaticRecorder.ExportPath!))
+{
+    Check(zip.Entries.Count == 5 && zip.Entries.All(e => e.Name != "events.jsonl"), "automatic export contains only report whitelist and context");
+    using var reader = new StreamReader(zip.GetEntry("engagements.jsonl")!.Open());
+    Check((await reader.ReadToEndAsync()) == await File.ReadAllTextAsync(Path.Combine(temp, "automatic", "engagements.jsonl")), "automatic report contains fully flushed engagements");
+}
+string blockedExports = Path.Combine(temp, "blocked-export");
+await File.WriteAllTextAsync(blockedExports, "a file blocks directory creation");
+var failedExport = new GameplayRecorder(Path.Combine(temp, "failed-export"), reportExportDirectory: blockedExports);
+await failedExport.DisposeAsync();
+Check(failedExport.ExportError != null && File.Exists(Path.Combine(temp, "failed-export", "analysis.json")), "export failure preserves recorded session");
+Console.WriteLine($"PASS: {checks} total checks including automatic local export.");
+

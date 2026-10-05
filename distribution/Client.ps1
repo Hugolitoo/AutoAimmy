@@ -5,6 +5,8 @@ $Root = [IO.Path]::GetFullPath($Root)
 $lock = $null
 try {
     $lock = [IO.File]::Open((Join-Path $Root 'launcher.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    Import-Module (Join-Path $PSScriptRoot 'PlayerProfiles.psm1') -Force
+    Install-ProfileShortcut $Root
     switch ($Action) {
         'Connect' {
             Write-Host 'For a PRIVATE repository: use your own GitHub fine-grained token, limited to this repository with Contents: Read.'
@@ -17,7 +19,13 @@ try {
         }
         'Export' { $null = Export-TestReport $Root; return }
         'Rollback' { Invoke-Rollback $Root; return }
-        'Update' { Invoke-UpdateCheck $Root; return }
+        'Update' {
+            Invoke-UpdateCheck $Root -AcceptUpdate
+            $installed = Get-InstalledState $Root
+            Import-Module (Join-Path $Root ('versions\' + $installed.Current + '\PlayerProfiles.psm1')) -Force
+            Install-ProfileShortcut $Root
+            return
+        }
         'Check' { Write-Host "Installed: $((Get-InstalledState $Root).Current)"; return }
     }
     Assert-AppStopped $Root
@@ -28,7 +36,7 @@ try {
         return
     }
     if (!$Offline) {
-        try { Invoke-UpdateCheck $Root } catch { Write-Warning "Update unavailable: $($_.Exception.Message). Using installed version." }
+        try { Invoke-UpdateCheck $Root -AcceptUpdate } catch { Write-Warning "Update unavailable: $($_.Exception.Message). Using installed version." }
     }
     $state = Get-InstalledState $Root
     $versionDirectory = Join-Path $Root ('versions\' + $state.Current)

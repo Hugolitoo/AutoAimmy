@@ -45,6 +45,10 @@ function Invoke-PlayerProfileMenu {
         $value = Get-Content -LiteralPath $saved[$i].FullName -Raw | ConvertFrom-Json
         Write-Host ("{0} : {1} / {2} / {3}" -f ($i+1), $value.Label, $value.Weapon, $value.Scope)
     }
+    $activePath = Join-Path $Root 'data\active-profile.json'
+    $active = $null
+    if (Test-Path -LiteralPath $activePath) { $active = Get-Content -LiteralPath $activePath -Raw | ConvertFrom-Json }
+    if ($active -and $active.Schema -eq 1) { Write-Host 'C : copier le profil actif et changer seulement arme / lunette / ADS.' }
     Write-Host 'N : nouveau profil (ou nouveaux reglages) ; S : continuer avec des informations inconnues.'
     $choice = Read-Host 'Choix'
     if ($choice -match '^\d+$' -and [long]$choice -ge 1 -and [long]$choice -le $saved.Count) {
@@ -57,7 +61,17 @@ function Invoke-PlayerProfileMenu {
         Source='UserDeclared'; UpdatedUtc=[DateTime]::UtcNow.ToString('o'); Game=$null; Weapon=$null;
         Dpi=$null; HorizontalSensitivity=$null; VerticalSensitivity=$null; Scope=$null; AdsSensitivity=$null;
         Fov=$null; AspectRatio=$null; Resolution=$null; AdsUsageDeclared=$null}
-    if ($choice -match '^[nN]$') {
+    if ($choice -match '^[cC]$' -and $active -and $active.Schema -eq 1) {
+        foreach ($key in @($profile.Keys)) {
+            if ($key -notin @('Id','UpdatedUtc','Source') -and $active.PSObject.Properties[$key]) { $profile[$key] = $active.$key }
+        }
+        $profile.Label = Read-ProfileText 'Nom du nouveau profil'
+        if (!$profile.Label) { $profile.Label = 'Copie du profil' }
+        $profile.Weapon = Read-ProfileText 'Nouvelle arme'
+        $profile.Scope = Read-ProfileText 'Nouvelle lunette'
+        $profile.AdsSensitivity = Read-ProfileNumber 'Sensibilite ADS de cette lunette' 0 1000
+        $profile | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $directory ($profile.Id + '.json')) -Encoding UTF8
+    } elseif ($choice -match '^[nN]$') {
         $profile.Label = Read-ProfileText 'Nom du profil (exemple : M4 2.5x)'
         if (!$profile.Label) { $profile.Label = 'Mon profil' }
         $profile.Game = Read-ProfileText 'Jeu / trainer'
@@ -72,7 +86,7 @@ function Invoke-PlayerProfileMenu {
         $profile.Resolution = Read-ProfileText 'Resolution (exemple : 1920x1080)'
         $profile.AdsUsageDeclared = Read-ProfileText 'Usage prevu : ADS / sans ADS / melange'
         $profile | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $directory ($profile.Id + '.json')) -Encoding UTF8
-    } elseif ($choice -notmatch '^[sS]$') { throw 'Choix invalide. Utiliser un numero, N ou S.' }
+    } elseif ($choice -notmatch '^[sS]$') { throw 'Choix invalide. Utiliser un numero, N, C ou S.' }
     Set-ActivePlayerProfile $Root $profile
     return [pscustomobject]$profile
 }

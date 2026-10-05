@@ -64,7 +64,10 @@ internal sealed class ObservationSession : IDisposable
         recorder = new(Path.Combine(root, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8]), options.QueueCapacity,
             Environment.GetEnvironmentVariable("AUTOAIMMY_VERSION") ?? typeof(ObservationSession).Assembly.GetName().Version?.ToString() ?? "development",
             new Dictionary<string, object?> { ["AimReference"] = options.AimReference.ToString(), ["RawMouseAvailable"] = rawMouse.TryRead(out _, out _, out _), ["RawMouseFailure"] = rawMouse.Failure, ["Calibration"] = "Uncalibrated counts; angular metrics unavailable", ["DetectionValidation"] = "Not confirmed" },
-            PlayerSessionContext.Load(ObservationMode.DataDirectory));
+            PlayerSessionContext.Load(ObservationMode.DataDirectory),
+            Environment.GetEnvironmentVariable("AUTOAIMMY_DATA_DIR") is string data
+                ? Path.GetFullPath(Path.Combine(data, "..", "exports"))
+                : Path.Combine(ObservationMode.DataDirectory, "exports"));
         sampler = Task.Run(SampleAsync);
         _ = sampler.ContinueWith(task =>
         {
@@ -73,7 +76,9 @@ internal sealed class ObservationSession : IDisposable
             app.Dispatcher.BeginInvoke(new Action(() => global::Other.LogManager.Log(
                 task.IsFaulted ? global::Other.LogManager.LogLevel.Error : global::Other.LogManager.LogLevel.Info,
                 task.IsFaulted ? $"Observation failed: {task.Exception?.GetBaseException().Message}" :
-                    $"Observation complete: {recorder.DirectoryPath}. Mouse output remains blocked.", true, 8000)));
+                    $"Observation complete: {recorder.DirectoryPath}. " +
+                    (recorder.ExportPath != null ? $"Report: {recorder.ExportPath}. " : $"Automatic export unavailable: {recorder.ExportError}. Use manual export. ") +
+                    "Mouse output remains blocked.", true, 8000)));
         }, TaskScheduler.Default);
     }
 

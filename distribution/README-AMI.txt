@@ -11,8 +11,9 @@ AUTOAIMMY — TEST OFFLINE / AIM TRAINER
    Choisir le moniteur du trainer dans Aimmy, et utiliser le trainer en plein ecran.
    Afficher les cadres de detection et verifier qu'ils suivent les bonnes cibles avant le test.
    Les cadres indiquent des detections du modele, pas des hits confirmes.
-6. Jouer 2-3 minutes puis fermer AutoAimmy. Ensuite tester 10 minutes.
-7. Double-cliquer Exporter-rapport.cmd et envoyer le ZIP dans exports.
+6. Jouer la session prevue puis fermer AutoAimmy normalement.
+7. Le ZIP du rapport est cree automatiquement dans exports en fin d'observation.
+   Envoyer ce ZIP manuellement. Exporter-rapport.cmd reste disponible si necessaire.
 
 Les reglages et sessions sont conserves dans data. Ne jamais supprimer ce dossier.
 Les rapports ne sont jamais envoyes automatiquement.
@@ -22,7 +23,11 @@ Pour changer de reference, lancer Configurer-viseur.cmd (nouvelle installation),
 ou modifier AimReference dans data\adaptive.json pour une ancienne installation.
 1 = curseur mobile ; 2 = viseur fixe au centre. Aucun reglage angulaire n'est devine.
 
-Une nouvelle version est proposee au demarrage si GitHub est accessible.
+Les prochaines mises a jour sont installees automatiquement au demarrage si GitHub est accessible.
+Pour rester sur la version actuelle, utiliser AutoAimmy-hors-ligne.cmd.
+Depuis 0.1.5, le raccourci Profil-joueur.cmd est repare meme lors d'une mise a jour seule.
+Dans le menu des profils, C copie les reglages du profil actif : seuls le nom, l'arme,
+la lunette et sa sensibilite ADS sont demandes. Verifier que les autres reglages restent identiques.
 Installation 0.1.1 ou 0.1.2 : telecharger Reparer-mise-a-jour.cmd depuis la release 0.1.3,
 le mettre a cote de l'ancien AutoAimmy.cmd, fermer Aimmy puis double-cliquer la reparation.
 Une sauvegarde de l'updater est conservee. Accepter la mise a jour, puis relancer AutoAimmy.cmd.

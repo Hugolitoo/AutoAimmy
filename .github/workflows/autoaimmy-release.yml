@@ -30,6 +30,9 @@ jobs:
       - name: Validate saved player profiles
         shell: powershell
         run: ./tests/PlayerProfileChecks.ps1
+      - name: Validate launcher shortcut repair
+        shell: powershell
+        run: ./tests/ClientChecks.ps1
       - name: Validate passive Windows observer
         shell: powershell
         run: dotnet run --project tests/WindowsObserverChecks/WindowsObserverChecks.csproj -c Release
