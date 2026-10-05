@@ -151,6 +151,7 @@ namespace Aimmy2
             // Initialize DisplayManager FIRST before anything else that depends on display info
             DisplayManager.Initialize();
             if (Aimmy2.Adaptive.ObservationMode.BlocksOutput) Aimmy2.VisualAnalysis.LiveHudObserver.Instance.Start();
+            Aimmy2.LocalAutomation.SavedSettingsObserver.Instance.Start();
 
             // Now that DisplayManager is initialized, we can create windows
             InitializeWindows();
@@ -609,6 +610,10 @@ namespace Aimmy2
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            Aimmy2.LocalAutomation.SavedSettingsObserver.Instance.Dispose();
+            if (_menuControls.TryGetValue("AutoAimmyMenu", out var localControl) && localControl is AutoAimmyMenuControl autoControl)
+                autoControl.StopBackgroundWork();
+            Aimmy2.LocalAutomation.LocalAutomationSession.Instance.Shutdown();
             Aimmy2.VisualAnalysis.LiveHudObserver.Instance.Dispose();
             if (_fileManager?.IsValueCreated == true)
             {
@@ -628,6 +633,7 @@ namespace Aimmy2
 
             SaveAllConfigurations();
             FileManager.AIManager?.Dispose();
+            Aimmy2.Adaptive.RawMouseObserver.DisposeShared();
 
             // Clean up display manager
             DisplayManager.DisplayChanged -= OnDisplayChanged;

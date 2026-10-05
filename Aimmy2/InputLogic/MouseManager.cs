@@ -69,7 +69,7 @@ namespace InputLogic
 
         public static async Task DoTriggerClick(RectangleF? detectionBox = null)
         {
-            if (ObservationMode.BlocksOutput) return;
+            if (ObservationMode.BlocksOutput || Aimmy2.LocalAutomation.LocalAutomationSession.Instance.Active) return;
             // there was a toggle for this, but i realized if it was off, it would never stop spraying. - T
             if (!(InputBindingManager.IsHoldingBinding("Aim Keybind") || InputBindingManager.IsHoldingBinding("Second Aim Keybind")))
             {
@@ -117,7 +117,7 @@ namespace InputLogic
         #region Spray Mode Methods
         public static void HoldMouseButton()
         {
-            if (ObservationMode.BlocksOutput) return;
+            if (ObservationMode.BlocksOutput || Aimmy2.LocalAutomation.LocalAutomationSession.Instance.Active) return;
             if (isSpraying) return;
 
             var (mouseDown, _) = GetMouseActions();
@@ -127,7 +127,7 @@ namespace InputLogic
 
         public static void ReleaseMouseButton()
         {
-            if (ObservationMode.BlocksOutput) return;
+            if (ObservationMode.BlocksOutput || Aimmy2.LocalAutomation.LocalAutomationSession.Instance.Active) return;
             if (!isSpraying) return;
 
             var (_, mouseUp) = GetMouseActions();
@@ -146,7 +146,7 @@ namespace InputLogic
 
         public static void MoveCrosshair(int detectedX, int detectedY)
         {
-            if (ObservationMode.BlocksOutput) return;
+            if (ObservationMode.BlocksOutput || Aimmy2.LocalAutomation.LocalAutomationSession.Instance.Active) return;
             int halfScreenWidth = (int)ScreenWidth / 2;
             int halfScreenHeight = (int)ScreenHeight / 2;
 

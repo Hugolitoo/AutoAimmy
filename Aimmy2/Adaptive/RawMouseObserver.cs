@@ -7,6 +7,11 @@ namespace Aimmy2.Adaptive;
 /// <summary>Passive standard Windows Raw Input, mouse only. No input generation or game access.</summary>
 internal sealed class RawMouseObserver : IDisposable
 {
+    // Windows permits one Raw Input registration per device class in a process.
+    // Observation and adaptive calibration therefore share the same passive source.
+    private static readonly Lazy<RawMouseObserver> shared = new(() => new RawMouseObserver());
+    public static RawMouseObserver Shared => shared.Value;
+    public static void DisposeShared() { if (shared.IsValueCreated) shared.Value.Dispose(); }
     [StructLayout(LayoutKind.Sequential)]
     private struct Device { public ushort Page, Usage; public uint Flags; public IntPtr Window; }
     [StructLayout(LayoutKind.Sequential)]

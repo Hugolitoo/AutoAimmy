@@ -83,8 +83,9 @@ public partial class AutoAimmyMenuControl : UserControl
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { latestReport = null; ReportText.Text = "Dossier des rapports inaccessible."; }
         LatestReportButton.IsEnabled = latestReport != null;
         NextStepText.Text = recording ? "Jouez votre session de test. Fermer normalement l’application termine l’observation et crée le ZIP." :
-            observation != null ? "Envoyez le ZIP et une courte vidéo montrant le HUD et les passages avec / sans visée pour préparer l’analyse visuelle." :
-            "Chargez le modèle, vérifiez les cadres sur les bonnes cibles et enregistrez une courte vidéo de votre test contre les IA.";
+            observation != null ? "Démarrez une session locale, puis vérifiez ses images dans AUTO pour mesurer les progrès sans envoyer de rapport." :
+            "Chargez le modèle, puis utilisez la session locale et sa calibration guidée.";
+        RefreshLocalView();
     }
 
     private void LoadAccountChoices()

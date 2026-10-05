@@ -25,7 +25,47 @@
                     <TextBlock x:Name="ObservationTitle" FontSize="17" FontWeight="SemiBold"/>
                     <TextBlock x:Name="ObservationDetail" Margin="0,5,0,0"/>
                     <TextBlock x:Name="ModelText" Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
-                    <TextBlock Text="Mode observation : l’assistance ne déplace pas la souris." Foreground="#BFFFFFFF" Margin="0,4,0,0"/>
+                    <TextBlock x:Name="OutputModeText" Text="Mode observation : l’assistance ne déplace pas la souris." Foreground="#BFFFFFFF" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Border>
+            <Border Background="#2229BA86" CornerRadius="8" Padding="14" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Session locale · calibration et assistance" FontSize="17" FontWeight="SemiBold"/>
+                    <TextBlock Text="1. Chargez un modèle. 2. Démarrez la session. 3. Calibrez devant une cible immobile, sans marcher ni tirer, dans la vue que vous utiliserez. 4. Activez l’assistance." Margin="0,6,0,6"/>
+                    <TextBlock x:Name="LocalStatusText" Foreground="#E6D8B3"/>
+                    <TextBlock x:Name="LocalProfileText" Margin="0,6,0,0"/>
+                    <TextBlock x:Name="LocalCaptureText" Margin="0,6,0,0"/>
+                    <TextBlock Text="Enregistrement local à 5 images/s, avec lecture animée. Maximum 512 Mo par session / 2 Go au total, puis arrêt de la collecte. Aucun envoi. Les profils utilisent la taille et la vitesse à l’écran, pas des mètres." Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
+                    <WrapPanel Margin="0,12,0,0">
+                        <Button x:Name="StartLocalButton" Content="Démarrer la session locale" Click="StartLocal_Click"/>
+                        <Button x:Name="CalibrateLocalButton" Content="Calibration guidée (45 s max)" Click="CalibrateLocal_Click"/>
+                        <Button x:Name="AssistLocalButton" Content="Activer l’assistance expérimentale" Click="AssistLocal_Click"/>
+                        <Button x:Name="StopLocalButton" Content="Arrêter la session" Click="StopLocal_Click"/>
+                        <Button Content="Voir les enregistrements" Click="OpenRecordings_Click"/>
+                    </WrapPanel>
+                    <TextBlock Text="L’assistance fonctionne avec votre touche de visée maintenue. F8 l’arrête. Recalibrez après un changement de DPI, zoom ou sensibilité. La calibration n’identifie pas automatiquement ces changements." Foreground="#E6D8B3"/>
+                </StackPanel>
+            </Border>
+            <Border Background="#14FFFFFF" CornerRadius="8" Padding="14" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Amélioration du détecteur sur ce PC" FontSize="17" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="LearningStatusText" Margin="0,6,0,0"/>
+                    <TextBlock Text="Les détections stables et les cas difficiles sont conservés. Vérifiez les exemples ici ; l’application peut ensuite comparer automatiquement les seuils et les modèles sur des sessions séparées. Les cadres proposés ne sont pas une vérité terrain." Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
+                    <WrapPanel Margin="0,12,0,0">
+                        <Button x:Name="ReviewLearningButton" Content="Vérifier les images" Click="ReviewLearning_Click"/>
+                        <Button x:Name="OptimizeLearningButton" Content="Optimiser la détection locale" Click="OptimizeLearning_Click"/>
+                        <Button x:Name="CompareModelButton" Content="Comparer un modèle ONNX" Click="CompareModel_Click"/>
+                        <Button x:Name="RollbackModelButton" Content="Revenir au modèle précédent" Click="RollbackModel_Click"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="LearningActionText" Foreground="#E6D8B3"/>
+                    <TextBlock Text="Le réentraînement des poids demande un modèle source entraînable et le moteur d’entraînement local. Un modèle ONNX permet déjà le suivi et la comparaison des réglages. Aucun abonnement ni calcul distant." Foreground="#BFFFFFFF"/>
+                    <WrapPanel Margin="0,12,0,0">
+                        <Button x:Name="ImportTrainingButton" Content="Importer les poids source (.pt)" Click="ImportTraining_Click"/>
+                        <Button x:Name="StartTrainingButton" Content="Entraîner et comparer localement" Click="StartTraining_Click"/>
+                        <Button x:Name="CancelTrainingButton" Content="Annuler le calcul" Click="CancelTraining_Click"/>
+                    </WrapPanel>
+                    <TextBlock Text="Importez uniquement les poids d’une source de confiance : les fichiers PyTorch peuvent contenir du code. L’entraînement est optionnel ; l’observation et les réglages utilisent votre ONNX actuel." Foreground="#BFFFFFFF"/>
+                    <TextBlock x:Name="TrainingStatusText" Foreground="#E6D8B3" Margin="0,6,0,0"/>
                 </StackPanel>
             </Border>
             <Border Background="#14FFFFFF" CornerRadius="8" Padding="14" Margin="0,0,0,12">

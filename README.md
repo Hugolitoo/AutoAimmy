@@ -1,12 +1,16 @@
 # AutoAimmy
 
+Version **0.2.0 (experimental)** adds an entirely local R6 workflow inside **AUTO**: bounded game recording with playback, verified-image review, guided current-view calibration, nine apparent-size/screen-motion profiles and explicitly enabled calibrated assistance. F8 stops assistance. A confidence threshold or replacement ONNX is accepted only after a measured comparison on reviewed, separate recording sessions. Optional offline training requires trusted source `.pt` weights and a local Python training environment; these are not included. No model weights have been retrained or proven better on real gameplay in this release. See [the 0.2 guide and exact limits](docs/Local-Automation-0.2.md).
+
+For the new workflow, load your existing ONNX, choose **Démarrer la session locale** in AUTO, perform **Calibration guidée**, then explicitly enable experimental assistance if wanted. Recording is a JPEG sequence at up to 5 frames/second with local animated playback, not a high-frame-rate MP4. Normal passive observation still defaults to no generated input. Starting a local session ends the old passive report so assisted input cannot contaminate its player-only metrics. All images, calibration, models and measurements remain on the PC; sharing reports with a chat is not required.
+
 Version 0.1.8 adds experimental local Windows OCR of explicit text in R6's lower-right HUD (up to one read/second), using Aimmy's selected capture method. Recognition requires two consecutive matching labels; icon-only weapons, equipped scopes without text and actual ADS remain unrecognized. Normal OCR saves no frames or transcripts. An optional Collect 20 images button creates a local validation ZIP with center/HUD crops and timestamps; it never uploads images. A visual-events.jsonl timeline joins normal reports. Multiple saved R6 configurations show the newest as a provisional candidate, and a one-click choice is remembered without retyping settings. Windows 10 version 2004 or newer is required.
 
 Version 0.1.7 adds an AutoAimmy page inside the app and opens it by default in observation mode. It shows the import result (including Imported), saved settings, unknown context, current model, observation progress and latest report. Settings can be reread without a questionnaire when no recording is in progress; model and report folders can be opened directly.
 
 Version 0.1.6 removes the required profile questionnaire. Saved R6 settings are read automatically from GameSettings.ini on every launch: horizontal/vertical sensitivity, ADS values by magnification, multipliers, FOV, resolution and the aspect-ratio enum. Profil-joueur.cmd refreshes and displays the import without asking for settings. Hardware DPI, equipped weapon/scope and actual ADS state remain unknown; missing or ambiguous account settings are never guessed. Each report records SettingsFile provenance and the configuration file timestamp without account paths or identifiers. See [automatic settings](docs/Player-profiles.md).
 
-Experimental, observation-only gameplay analyzer for **offline aim trainers and sandboxes**. Noncommercial fork of [Aimmy](https://github.com/Babyhamsta/Aimmy).
+Experimental gameplay analyzer and calibrated assistance for **offline tests and sandboxes**, currently focused on R6 tests against AI. Noncommercial fork of [Aimmy](https://github.com/Babyhamsta/Aimmy).
 
 Download the first installation from [Releases](https://github.com/Hugolitoo/AutoAimmy/releases): **AutoAimmy-win-x64.zip**. Extract the entire ZIP and open **AutoAimmy.cmd**. Windows x64 and the .NET desktop runtime are bundled; no developer SDK is needed.
 
@@ -16,6 +20,6 @@ Updates are installed automatically before launch. Player settings, models and s
 
 For an existing 0.1.1 or 0.1.2 installation, version 0.1.3 fixes discovery when GitHub returns multiple releases. Download **Reparer-mise-a-jour.cmd** from the release assets, put it beside your existing AutoAimmy.cmd, close the app and run the repair. It backs up the old updater, changes only the faulty release-array assignment, then offers the normal update. No reinstallation or player-data transfer is needed.
 
-The report leaves cognitive reaction time and uncalibrated angular metrics unavailable. See [measurement corrections](docs/Reticle-V0.1.2.md). Adaptive assistance and model training are future work.
+The passive report leaves cognitive reaction time and uncalibrated angular metrics unavailable. See [measurement corrections](docs/Reticle-V0.1.2.md). The 0.2 workflow does not infer actual hits, causal recoil, actual ADS, hardware DPI or physical target distance.
 
 See [distribution instructions](docs/Distribution.md) and [analyzer architecture](docs/Adaptive-V0.1.md). Contributions and redistribution must respect the upstream [PolyForm Noncommercial license](LICENSE) and [source-available notice](SourceAvailable.md).

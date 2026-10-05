@@ -14,16 +14,21 @@ $publishDirectory = Join-Path $releaseRoot 'payload'
 $null = New-Item -ItemType Directory -Path $publishDirectory -Force
 Push-Location $projectRoot
 try {
-    & $dotnetExe run --project 'tests\AdaptiveChecks\AdaptiveChecks.csproj' -c Release
-    if ($LASTEXITCODE -ne 0) { throw 'Analyzer checks failed.' }
+    foreach ($checks in @('AdaptiveChecks','AdaptiveControlChecks','LocalAutomationChecks','LocalCaptureChecks','ModelLearningChecks')) {
+        & $dotnetExe run --project ("tests\$checks\$checks.csproj") -c Release
+        if ($LASTEXITCODE -ne 0) { throw "$checks failed." }
+    }
     & $dotnetExe publish 'Aimmy2\Aimmy2.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 "-p:Version=$Version" -p:PublishSingleFile=false -o $publishDirectory --nologo -v:q
     if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
     foreach ($file in @('Client.ps1','Updater.psm1','PlayerProfiles.psm1','AutomaticSettings.psm1')) { Copy-Item -LiteralPath (Join-Path $projectRoot ('distribution\' + $file)) -Destination $publishDirectory }
+    $learningDirectory = Join-Path $publishDirectory 'local-learning'
+    $null = New-Item -ItemType Directory -Path $learningDirectory -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\local-learning\runner.py') -Destination $learningDirectory
     foreach ($file in @('LICENSE','SourceAvailable.md')) { Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $publishDirectory }
-    [ordered]@{ Product='AutoAimmy'; Version=$Version; Channel=$Channel; Runtime='win-x64'; ObservationOnly=$true } |
+    [ordered]@{ Product='AutoAimmy'; Version=$Version; Channel=$Channel; Runtime='win-x64'; ObservationOnly=$false; DefaultMode='Observation'; ExperimentalCalibratedAssistance=$true; LocalOnlyAnalysis=$true } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $publishDirectory 'release.json') -Encoding UTF8
     # Only explicitly selected publish files are packaged; never include source build output's sessions or configuration.
-    $forbidden = @('bin','data','sessions','profiles','adaptive.json','github-access.xml')
+    $forbidden = @('bin','data','sessions','profiles','local-profiles','local-capture','learning','validation','adaptive.json','github-access.xml')
     foreach ($name in $forbidden) {
         if (Test-Path -LiteralPath (Join-Path $publishDirectory $name)) { throw "Personal data or mutable config in publish output: $name" }
     }

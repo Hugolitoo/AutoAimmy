@@ -52,7 +52,7 @@ internal sealed class ObservationSession : IDisposable
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly GameplayRecorder recorder;
     private readonly Task sampler;
-    private readonly RawMouseObserver rawMouse = new();
+    private readonly RawMouseObserver rawMouse = RawMouseObserver.Shared;
     private TargetObservation? target;
     private TargetObservation? previousTarget;
     private long nextId;
@@ -85,7 +85,7 @@ internal sealed class ObservationSession : IDisposable
                 task.IsFaulted ? $"Observation failed: {task.Exception?.GetBaseException().Message}" :
                     $"Observation complete: {recorder.DirectoryPath}. " +
                     (recorder.ExportPath != null ? $"Report: {recorder.ExportPath}. " : $"Automatic export unavailable: {recorder.ExportError}. Use manual export. ") +
-                    "Mouse output remains blocked.", true, 8000)));
+                    "Ce rapport est terminé ; le mode local se contrôle séparément dans AUTO.", true, 8000)));
         }, TaskScheduler.Default);
     }
 
@@ -153,7 +153,7 @@ internal sealed class ObservationSession : IDisposable
             }
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
-        finally { rawMouse.Dispose(); await recorder.DisposeAsync().ConfigureAwait(false); }
+        finally { await recorder.DisposeAsync().ConfigureAwait(false); }
     }
 
     public void Dispose()

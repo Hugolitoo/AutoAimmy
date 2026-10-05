@@ -59,5 +59,5 @@ try {
     $env:AUTOAIMMY_VERSION = $state.Current
     # Self-contained build does not require a developer SDK or a system runtime.
     $app = Start-Process -FilePath (Join-Path $versionDirectory 'YmmiaV2.exe') -WorkingDirectory $env:AUTOAIMMY_DATA_DIR -WindowStyle Hidden -PassThru
-    Write-Host "AutoAimmy $($state.Current) started. PID: $($app.Id). Observation only."
+    Write-Host "AutoAimmy $($state.Current) started. PID: $($app.Id). Observation by default; local calibration and experimental assistance are available in AUTO."
 } finally { if ($lock) { $lock.Dispose() } }

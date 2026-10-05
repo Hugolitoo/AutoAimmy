@@ -1,54 +1,34 @@
-AUTOAIMMY 0.1.8 — COMPTES R6 / LECTURE EXPERIMENTALE DU HUD
+AUTOAIMMY 0.2.0 — SESSION LOCALE EXPERIMENTALE
 
-1. Extraire TOUT le ZIP dans un dossier, par exemple Documents\AutoAimmy.
-2. Double-cliquer AutoAimmy.cmd. Aucun SDK ni runtime a installer.
-   Aucun questionnaire : les reglages R6 sont lus depuis GameSettings.ini dans Documents.
-   Profil-joueur.cmd relit et affiche ces reglages, sans saisie manuelle.
-   La page AutoAimmy affiche maintenant Imported et les reglages dans l'application.
-   Le bouton AUTO dans la barre de gauche ouvre cette page.
-   Relire les reglages R6 : actualiser sans questionnaire, hors enregistrement.
-   Ouvrir les modeles / rapports : acceder directement aux dossiers utiles.
-3. Mettre le modele ONNX dans data\bin\models puis le charger dans l'application.
-4. Choisir le moniteur utilise et verifier que les cadres suivent les bonnes cibles.
-5. Jouer la session de test contre les IA puis fermer normalement AutoAimmy.
-6. Le rapport ZIP est cree automatiquement dans exports ; envoyer ce ZIP manuellement.
+1. Extraire tout le ZIP, puis ouvrir AutoAimmy.cmd.
+   Pour une installation existante : Mettre-a-jour.cmd puis fermer/relancer.
+2. Placer votre ONNX dans data\bin\models et le charger dans Modeles.
+3. Ouvrir AUTO puis Demarrer la session locale.
+4. Calibration guidee : cible immobile, sans marcher ni tirer, meme vue.
+   Maintenir la touche de visee configuree dans Aimmy et faire de petits
+   mouvements gauche/droite puis haut/bas dans les deux sens.
+5. Quand la calibration est validee, activer l'assistance experimentale.
+   Elle agit avec la touche de visee maintenue. F8 l'arrete.
+   Recalibrer apres changement de DPI, souris, sensibilite ou zoom.
+6. Arreter la session puis Verifier les images dans AUTO.
+   Corriger les boites (clic droit = enlever, glisser gauche = ajouter),
+   puis valider. Les comparaisons restent sur votre PC, sans ZIP a envoyer.
 
-Lecture automatique : sensibilites horizontale/verticale, ADS par grossissement,
-multiplicateurs, FOV, resolution et code du ratio. Les valeurs non reconnues restent inconnues.
-DPI materiel, arme equipee, lunette equipee et etat ADS reel ne sont pas encore detectes.
-Le fichier contient les reglages sauvegardes, pas necessairement les valeurs actives a cet instant.
-Apres un changement dans le jeu : enregistrer les reglages puis relancer AutoAimmy.
-Si plusieurs comptes sont trouves, le dernier fichier sauvegarde est affiche comme candidat.
-Verifier les valeurs : choisir le bon ensemble dans la liste puis Utiliser ces reglages.
-Ce choix est memorise ; aucune sensibilite n'est a retaper.
+La capture enregistre jusqu'a 5 images/s et offre une lecture animee locale.
+Ce n'est pas une video MP4 haute frequence. Maximum 512 Mio/session,
+2 Gio au total et 30 minutes, puis arret de la collecte sans suppression.
+Les sous-profils changent selon taille et mouvement des cibles a l'ecran.
+Les DPI physiques, les vrais impacts et le recul isole ne sont pas reconnus.
 
-La lecture du HUD demarre automatiquement quand R6 est au premier plan.
-Elle reconnait du texte explicite, pas les icones seules. Deux lectures coherentes sont requises.
-Minimiser Aimmy et jouer ; la page montre la date et le dernier texte reconnu.
-DPI materiel et etat ADS reel restent inconnus. La reconnaissance n'est pas encore validee
-sur votre HUD : les resultats sont experimentaux, pas des detections garanties.
-visual-events.jsonl accompagne le rapport. En mode OCR normal, aucune image ni transcription sauvegardee.
-Pour preparer la reconnaissance d'icones et de visee, cliquer Collecter 20 images pour validation,
-remettre R6 au premier plan et alterner avec/sans visee pendant environ 20-40 secondes.
-Ce clic sauvegarde localement 20 paires centre/HUD et cree AutoAimmy-validation-...zip dans exports.
-Envoyer ce ZIP manuellement. Les images restent non annotees ; aucune reconnaissance ADS n'est encore activee.
-Windows 10 version 2004 ou Windows 11 et une langue OCR Windows sont requis.
+Un minimum de 40 images verifiees dans deux sessions est requis pour mesurer
+une nouvelle configuration. Les propositions du modele ne sont jamais
+considerees automatiquement comme des annotations correctes.
+Le reentrainement des poids exige le fichier source .pt de confiance et
+Python/PyTorch/Ultralytics/ONNX/Pillow locaux. Ils ne sont pas fournis.
+Aucun poids du modele n'a ete reentraine ou prouve meilleur dans cette version.
 
-Observation uniquement : l'application ne commande pas la souris et ne reentraine pas le modele.
-Les reglages et sessions restent dans data. Ne jamais supprimer ce dossier.
-Les anciens profils sont conserves ; leurs valeurs ne remplacent pas les valeurs inconnues.
-Aucun rapport n'est envoye automatiquement. L'export contient seulement les mesures
-et le contexte autorise, sans chemin de compte ni fichier complet du jeu.
-Exporter-rapport.cmd reste disponible si la creation automatique du ZIP echoue.
-
-Les mises a jour se font automatiquement au demarrage si GitHub est accessible.
-AutoAimmy-hors-ligne.cmd conserve la version installee et saute la verification reseau.
-Mettre-a-jour.cmd permet une mise a jour seule. Relancer une fois apres le passage
-d'une ancienne version pour executer le nouveau lanceur.
-Retour-version-precedente.cmd revient a l'ancienne version sans supprimer data.
-Apres rollback, utiliser le lancement hors ligne pour conserver cette version.
-Installation 0.1.1/0.1.2 : placer Reparer-mise-a-jour.cmd a cote d'AutoAimmy.cmd,
-fermer l'application puis executer la reparation avant la mise a jour normale.
-
-Pour un depot public, aucun compte GitHub ni jeton n'est necessaire.
-Ne jamais partager data\github-access.xml si une connexion privee a ete configuree.
+Tout le traitement et les donnees de jeu restent sur ce PC.
+Les mises a jour consultent GitHub ; AutoAimmy-hors-ligne.cmd ignore le reseau.
+Retour-version-precedente.cmd permet de revenir a l'ancienne application.
+Ne pas supprimer data : modeles, profils et enregistrements y sont conserves.
+Guide complet : https://github.com/Hugolitoo/AutoAimmy/blob/main/docs/Local-Automation-0.2.md

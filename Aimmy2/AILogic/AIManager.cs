@@ -1,4 +1,6 @@
 using Aimmy2.Adaptive;
+using Aimmy2.LocalAutomation;
+using Aimmy2.LocalCapture;
 using AILogic;
 using Aimmy2.Class;
 using Class;
@@ -89,8 +91,11 @@ namespace Aimmy2.AILogic
         private volatile bool _lastPredictionRanInference;
         private readonly SemaphoreSlim _inferenceGate = new(1, 1);
         private bool _disposed;
+        private Action? _pendingOverlayUpdate;
+        private int _overlayUpdateScheduled;
         private ObservationSession? _observation;
         internal ObservationSession? Observation => _observation;
+        internal string ModelPath => _modelPath;
 
         // For Auto-Labelling Data System
         private bool PlayerFound = false;
@@ -286,6 +291,7 @@ namespace Aimmy2.AILogic
                 throw;
             }
 
+            LocalAutomationSession.Instance.SetModel(modelPath);
             _isAiLoopRunning = true;
             _aiLoopCancellation?.Dispose();
             _aiLoopCancellation = new CancellationTokenSource();
@@ -501,7 +507,7 @@ namespace Aimmy2.AILogic
             {
                 _observation = new ObservationSession();
                 Application.Current.Dispatcher.BeginInvoke(new Action(() =>
-                    Log(LogLevel.Info, "OBSERVING: mouse output blocked for this process. Desktop cursor telemetry only.", true, 5000)));
+                    Log(LogLevel.Info, "Observation active : aucune correction automatique par défaut. Le mode local et son assistance se contrôlent dans AUTO.", true, 5000)));
             }
             Stopwatch stopwatch = new();
             DetectedPlayerWindow? DetectedPlayerOverlay = Dictionary.DetectedPlayerOverlay;
@@ -534,7 +540,7 @@ namespace Aimmy2.AILogic
 
                         _captureManager.HandlePendingDisplayChanges();
 
-                        if (ObservationMode.BlocksOutput && _observation?.IsRecording == false)
+                        if (ObservationMode.BlocksOutput && _observation?.IsRecording == false && !LocalAutomationSession.Instance.Active)
                         {
                             await Task.Delay(100, cancellationToken);
                             continue;
@@ -544,9 +550,9 @@ namespace Aimmy2.AILogic
                         {
                             UpdateFOV();
 
-                            if (ObservationMode.BlocksOutput || ShouldProcess())
+                            if (ObservationMode.BlocksOutput || LocalAutomationSession.Instance.Active || ShouldProcess())
                             {
-                                if (ObservationMode.BlocksOutput || ShouldPredict())
+                                if (ObservationMode.BlocksOutput || LocalAutomationSession.Instance.Active || ShouldPredict())
                                 {
                                     Prediction? closestPrediction;
                                     using (Benchmark("GetClosestPrediction"))
@@ -562,7 +568,7 @@ namespace Aimmy2.AILogic
                                         }
                                     }
 
-                                    if (ObservationMode.BlocksOutput)
+                                    if (ObservationMode.BlocksOutput || LocalAutomationSession.Instance.Active)
                                     {
                                         UpdateObservationOverlay(closestPrediction);
                                         continue;
@@ -724,22 +730,52 @@ namespace Aimmy2.AILogic
             }
         }
 
-        private static void DisableOverlay(DetectedPlayerWindow DetectedPlayerOverlay)
+        // Keep at most one queued dispatcher callback and replace its payload with the latest frame.
+        // A synchronous dispatcher wait here can deadlock UI-thread model disposal or app shutdown.
+        private void QueueOverlayUpdate(DetectedPlayerWindow overlay, Action update)
+        {
+            if (Volatile.Read(ref _disposed)) return;
+            Interlocked.Exchange(ref _pendingOverlayUpdate, () =>
+            {
+                if (!Volatile.Read(ref _disposed) && overlay.IsLoaded &&
+                    ReferenceEquals(Dictionary.DetectedPlayerOverlay, overlay)) update();
+            });
+            ScheduleOverlayUpdate();
+        }
+
+        private void ScheduleOverlayUpdate()
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (Volatile.Read(ref _disposed) || dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            { Interlocked.Exchange(ref _pendingOverlayUpdate, null); return; }
+            if (Interlocked.CompareExchange(ref _overlayUpdateScheduled, 1, 0) != 0) return;
+            try
+            {
+                dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
+                {
+                    try { Interlocked.Exchange(ref _pendingOverlayUpdate, null)?.Invoke(); }
+                    finally
+                    {
+                        Volatile.Write(ref _overlayUpdateScheduled, 0);
+                        if (Volatile.Read(ref _pendingOverlayUpdate) != null) ScheduleOverlayUpdate();
+                    }
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                Interlocked.Exchange(ref _pendingOverlayUpdate, null);
+                Volatile.Write(ref _overlayUpdateScheduled, 0);
+            }
+        }
+
+        private void DisableOverlay(DetectedPlayerWindow DetectedPlayerOverlay)
         {
             if (AimSettings.ShowDetectedPlayer && Dictionary.DetectedPlayerOverlay != null)
             {
-                Application.Current.Dispatcher.Invoke(() =>
+                QueueOverlayUpdate(DetectedPlayerOverlay, () =>
                 {
-                    if (AimSettings.ShowAiConfidence)
-                    {
-                        DetectedPlayerOverlay!.DetectedPlayerConfidence.Opacity = 0;
-                    }
-
-                    if (AimSettings.ShowTracers)
-                    {
-                        DetectedPlayerOverlay!.DetectedTracers.Opacity = 0;
-                    }
-
+                    DetectedPlayerOverlay!.DetectedPlayerConfidence.Opacity = 0;
+                    DetectedPlayerOverlay!.DetectedTracers.Opacity = 0;
                     DetectedPlayerOverlay!.DetectedPlayerFocus.Opacity = 0;
                 });
             }
@@ -749,21 +785,26 @@ namespace Aimmy2.AILogic
         {
             var scalingFactorX = WinAPICaller.scalingFactorX;
             var scalingFactorY = WinAPICaller.scalingFactorY;
+            var detectionBox = LastDetectionBox;
+            var confidence = closestPrediction.Confidence;
+            var className = closestPrediction.ClassName;
+            var screenHorizontalCenter = DisplayManager.ScreenWidth / (2.0 * scalingFactorX);
 
             // Convert screen coordinates to display-relative coordinates
-            var displayRelativeX = LastDetectionBox.X - DisplayManager.ScreenLeft;
-            var displayRelativeY = LastDetectionBox.Y - DisplayManager.ScreenTop;
+            var displayRelativeX = detectionBox.X - DisplayManager.ScreenLeft;
+            var displayRelativeY = detectionBox.Y - DisplayManager.ScreenTop;
 
             // Calculate center position in display-relative coordinates
-            var centerX = Convert.ToInt16(displayRelativeX / scalingFactorX) + (LastDetectionBox.Width / 2.0);
+            var centerX = Convert.ToInt16(displayRelativeX / scalingFactorX) + (detectionBox.Width / 2.0);
             var centerY = Convert.ToInt16(displayRelativeY / scalingFactorY);
 
-            Application.Current.Dispatcher.Invoke(() =>
+            QueueOverlayUpdate(DetectedPlayerOverlay, () =>
             {
+                if (!AimSettings.ShowDetectedPlayer) { DetectedPlayerOverlay.DetectedPlayerFocus.Opacity = 0; return; }
                 if (AimSettings.ShowAiConfidence)
                 {
                     DetectedPlayerOverlay.DetectedPlayerConfidence.Opacity = 1;
-                    DetectedPlayerOverlay.DetectedPlayerConfidence.Content = $"{closestPrediction.ClassName}: {Math.Round((AIConf * 100), 2)}%";
+                    DetectedPlayerOverlay.DetectedPlayerConfidence.Content = $"{className}: {Math.Round((confidence * 100), 2)}%";
 
                     var labelEstimatedHalfWidth = DetectedPlayerOverlay.DetectedPlayerConfidence.ActualWidth / 2.0;
                     DetectedPlayerOverlay.DetectedPlayerConfidence.Margin = new Thickness(
@@ -777,11 +818,11 @@ namespace Aimmy2.AILogic
                     var tracerPosition = AimSettings.TracerPosition;
 
                     var boxTop = centerY;
-                    var boxBottom = centerY + LastDetectionBox.Height;
+                    var boxBottom = centerY + detectionBox.Height;
                     var boxHorizontalCenter = centerX;
-                    var boxVerticalCenter = centerY + (LastDetectionBox.Height / 2.0);
-                    var boxLeft = centerX - (LastDetectionBox.Width / 2.0);
-                    var boxRight = centerX + (LastDetectionBox.Width / 2.0);
+                    var boxVerticalCenter = centerY + (detectionBox.Height / 2.0);
+                    var boxLeft = centerX - (detectionBox.Width / 2.0);
+                    var boxRight = centerX + (detectionBox.Width / 2.0);
 
                     switch (tracerPosition)
                     {
@@ -796,7 +837,6 @@ namespace Aimmy2.AILogic
                             break;
 
                         case "Middle":
-                            var screenHorizontalCenter = DisplayManager.ScreenWidth / (2.0 * WinAPICaller.scalingFactorX);
                             if (boxHorizontalCenter < screenHorizontalCenter)
                             {
                                 // if the box is on the left half of the screen, aim for the right-middle of the box
@@ -823,9 +863,9 @@ namespace Aimmy2.AILogic
 
                 DetectedPlayerOverlay.DetectedPlayerFocus.Opacity = 1;
                 DetectedPlayerOverlay.DetectedPlayerFocus.Margin = new Thickness(
-                    centerX - (LastDetectionBox.Width / 2.0), centerY, 0, 0);
-                DetectedPlayerOverlay.DetectedPlayerFocus.Width = LastDetectionBox.Width;
-                DetectedPlayerOverlay.DetectedPlayerFocus.Height = LastDetectionBox.Height;
+                    centerX - (detectionBox.Width / 2.0), centerY, 0, 0);
+                DetectedPlayerOverlay.DetectedPlayerFocus.Width = detectionBox.Width;
+                DetectedPlayerOverlay.DetectedPlayerFocus.Height = detectionBox.Height;
             });
         }
 
@@ -834,19 +874,21 @@ namespace Aimmy2.AILogic
         {
             var overlay = Dictionary.DetectedPlayerOverlay;
             if (overlay == null || !AimSettings.ShowDetectedPlayer) return;
-            Application.Current.Dispatcher.Invoke(() =>
+            bool hasPrediction = prediction != null;
+            double sx = WinAPICaller.scalingFactorX, sy = WinAPICaller.scalingFactorY;
+            double width = prediction?.Rectangle.Width ?? 0, height = prediction?.Rectangle.Height ?? 0;
+            double left = ((prediction?.ScreenCenterX ?? 0) - width / 2 - DisplayManager.ScreenLeft) / sx;
+            double top = ((prediction?.ScreenCenterY ?? 0) - height / 2 - DisplayManager.ScreenTop) / sy;
+            QueueOverlayUpdate(overlay, () =>
             {
                 overlay.DetectedTracers.Opacity = 0;
                 overlay.DetectedPlayerConfidence.Opacity = 0;
-                overlay.DetectedPlayerFocus.Opacity = prediction == null ? 0 : 1;
-                if (prediction == null) return;
-                double sx = WinAPICaller.scalingFactorX, sy = WinAPICaller.scalingFactorY;
+                overlay.DetectedPlayerFocus.Opacity = !hasPrediction || !AimSettings.ShowDetectedPlayer ? 0 : 1;
+                if (!hasPrediction || !AimSettings.ShowDetectedPlayer) return;
                 overlay.Opacity = AimSettings.OverlayOpacity;
-                overlay.DetectedPlayerFocus.Margin = new Thickness(
-                    (prediction.ScreenCenterX - prediction.Rectangle.Width / 2 - DisplayManager.ScreenLeft) / sx,
-                    (prediction.ScreenCenterY - prediction.Rectangle.Height / 2 - DisplayManager.ScreenTop) / sy, 0, 0);
-                overlay.DetectedPlayerFocus.Width = prediction.Rectangle.Width / sx;
-                overlay.DetectedPlayerFocus.Height = prediction.Rectangle.Height / sy;
+                overlay.DetectedPlayerFocus.Margin = new Thickness(left, top, 0, 0);
+                overlay.DetectedPlayerFocus.Width = width / sx;
+                overlay.DetectedPlayerFocus.Height = height / sy;
             });
         }
 
@@ -983,16 +1025,38 @@ namespace Aimmy2.AILogic
         private async Task<Prediction?> GetClosestPrediction(bool useMousePosition = true)
         {
             _lastPredictionRanInference = false;
+            bool localActive = !_benchmarkMode && LocalAutomationSession.Instance.Active;
+            R6ForegroundSnapshot? foreground = null;
+            if (localActive)
+            {
+                if (!R6ForegroundGuard.TryGet(out var game))
+                {
+                    LocalAutomationSession.Instance.PauseFrame("En pause : remettez R6 au premier plan.");
+                    _observation?.UpdateTargets(Array.Empty<Prediction>());
+                    return null;
+                }
+                foreground = game;
+            }
             Rectangle detectionBox = CreateDetectionBox(useMousePosition);
+            if (localActive && foreground != null && !foreground.ClientBounds.Contains(detectionBox))
+            {
+                LocalAutomationSession.Instance.PauseFrame("Capture hors de la fenêtre de R6 : sélectionnez son moniteur et agrandissez le jeu.");
+                _observation?.UpdateTargets(Array.Empty<Prediction>());
+                return null;
+            }
 
             Bitmap? frame;
 
             using (Benchmark("ScreenGrab"))
             {
-                frame = _captureManager.ScreenGrab(detectionBox, allowStaleCache: _benchmarkMode);
+                frame = _captureManager.ScreenGrab(detectionBox, allowStaleCache: _benchmarkMode, requireFresh: localActive);
             }
 
             if (frame == null) return null;
+            DateTime capturedUtc = DateTime.UtcNow;
+            double capturedSeconds = LocalAutomationSession.Instance.Timestamp;
+            long rawX = 0, rawY = 0;
+            bool rawAvailable = localActive && RawMouseObserver.Shared.TryRead(out rawX, out rawY, out _);
 
             IDisposableReadOnlyCollection<DisposableNamedOnnxValue>? results = null;
             Tensor<float>? outputTensor = null;
@@ -1036,12 +1100,12 @@ namespace Aimmy2.AILogic
                 if (outputTensor == null)
                 {
                     Log(LogLevel.Error, "Model inference returned null output tensor.", true, 2000);
-                    SaveFrame(frame);
+                    if (!localActive) SaveFrame(frame);
                     return null;
                 }
 
                 // Calculate the FOV boundaries
-                float FovSize = (float)AimSettings.FovSize;
+                float FovSize = localActive ? IMAGE_SIZE : (float)AimSettings.FovSize;
                 float fovMinX = (IMAGE_SIZE - FovSize) / 2.0f;
                 float fovMaxX = (IMAGE_SIZE + FovSize) / 2.0f;
                 float fovMinY = (IMAGE_SIZE - FovSize) / 2.0f;
@@ -1051,7 +1115,7 @@ namespace Aimmy2.AILogic
                 List<Prediction> KDPredictions;
                 using (Benchmark("PrepareKDTreeData"))
                 {
-                    float minConfidence = AimSettings.MinimumConfidence;
+                    float minConfidence = localActive ? .10f : AimSettings.MinimumConfidence;
                     string selectedClass = AimSettings.TargetClass;
 
                     KDPredictions = PredictionFilter.CreatePredictions(
@@ -1067,8 +1131,21 @@ namespace Aimmy2.AILogic
                         fovMaxX,
                         fovMinY,
                         fovMaxY);
+                    if (localActive) KDPredictions = DetectionPostProcessor.SuppressDuplicates(KDPredictions);
                 }
 
+                if (localActive && foreground != null)
+                {
+                    if (!R6ForegroundGuard.StillMatches(foreground))
+                    {
+                        LocalAutomationSession.Instance.PauseFrame("Capture interrompue : R6 a quitté le premier plan.");
+                        _observation?.UpdateTargets(Array.Empty<Prediction>());
+                        return null;
+                    }
+                    _observation?.UpdateTargets(KDPredictions);
+                    return LocalAutomationSession.Instance.ProcessFrame(frame, detectionBox, KDPredictions,
+                        capturedUtc, capturedSeconds, foreground, rawX, rawY, rawAvailable);
+                }
                 if (ObservationMode.BlocksOutput && !_benchmarkMode)
                 {
                     return _observation?.UpdateTargets(KDPredictions);
@@ -1130,7 +1207,7 @@ namespace Aimmy2.AILogic
 
         private Rectangle CreateDetectionBox(bool useMousePosition = true)
         {
-            string detectionAreaType = ObservationMode.BlocksOutput && ObservationMode.Options.AimReference == AimReference.ScreenCenter
+            string detectionAreaType = LocalAutomationSession.Instance.Active || (ObservationMode.BlocksOutput && ObservationMode.Options.AimReference == AimReference.ScreenCenter)
                 ? "Closest to Center Screen" : AimSettings.DetectionAreaType;
             System.Drawing.Point mousePosition = default;
             bool mouseOnCurrentDisplay = false;

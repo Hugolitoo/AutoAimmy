@@ -14,6 +14,7 @@ namespace Other
         public FileSystemWatcher? ConfigFileWatcher;
 
         private ListBox ModelListBox;
+        internal static ListBox? ModelListBoxForAutomation { get; private set; }
         private Label SelectedModelNotifier;
 
         private ListBox ConfigListBox;
@@ -31,6 +32,7 @@ namespace Other
         public FileManager(ListBox modelListBox, Label selectedModelNotifier, ListBox configListBox, Label selectedConfigNotifier)
         {
             ModelListBox = modelListBox;
+            ModelListBoxForAutomation = modelListBox;
             SelectedModelNotifier = selectedModelNotifier;
 
             ConfigListBox = configListBox;

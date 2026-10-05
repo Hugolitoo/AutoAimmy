@@ -53,6 +53,13 @@ jobs:
           RELEASE_CHANNEL: ${{ inputs.channel }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: ./scripts/Build-Release.ps1 -Version $env:RELEASE_VERSION -Channel $env:RELEASE_CHANNEL -Repository $env:RELEASE_REPOSITORY
+      - name: Validate local UI and output defaults
+        shell: powershell
+        run: |
+          dotnet build tests/LocalUiChecks/LocalUiChecks.csproj -c Release -p:Platform=x64 --nologo -v:q
+          if ($LASTEXITCODE -ne 0) { throw 'UI test build failed.' }
+          dotnet tests/LocalUiChecks/bin/x64/Release/net8.0-windows10.0.19041.0/LocalUiChecks.dll artifacts/ui-checks
+          if ($LASTEXITCODE -ne 0) { throw 'UI validation failed.' }
       - name: Publish release
         shell: powershell
         env:
@@ -62,7 +69,7 @@ jobs:
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           $assets = @("artifacts/$env:RELEASE_VERSION/AutoAimmy-win-x64.zip", "artifacts/$env:RELEASE_VERSION/AutoAimmy-update-win-x64.zip", "artifacts/$env:RELEASE_VERSION/manifest.json", "artifacts/$env:RELEASE_VERSION/Reparer-mise-a-jour.cmd")
-          $arguments = @('release', 'create', "v$env:RELEASE_VERSION", '--repo', $env:RELEASE_REPOSITORY, '--target', '${{ github.sha }}', '--title', "AutoAimmy $env:RELEASE_VERSION", '--notes', 'Offline aim-trainer observation build. Download AutoAimmy-win-x64.zip for the first installation. Existing installations use the updater. Personal data is not included.')
+          $arguments = @('release', 'create', "v$env:RELEASE_VERSION", '--repo', $env:RELEASE_REPOSITORY, '--target', '${{ github.sha }}', '--title', "AutoAimmy $env:RELEASE_VERSION", '--notes', 'Experimental local R6 recording, guided calibration, optional assistance and reviewed detector evaluation. Defaults to observation. Source training weights and Python dependencies are not bundled; real gameplay improvement is unverified. Download AutoAimmy-win-x64.zip for the first installation. Existing installations use the updater. Personal data is not included.')
           if ($env:RELEASE_CHANNEL -eq 'test') { $arguments += '--prerelease' }
           & gh @arguments @assets
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

@@ -1,0 +1,209 @@
+using Aimmy2.AdaptiveControl;
+using System.Text.Json;
+
+int checks = 0;
+void Check(bool value, string description)
+{
+    if (!value) throw new Exception(description);
+    checks++;
+}
+bool Near(double a, double b, double tolerance = 1e-7) => Math.Abs(a - b) < tolerance;
+DetectionSample Box(int index, double x = 1000, double y = 540, double width = 70, double height = 140,
+    double confidence = .9, int classId = 0) => new(index, x, y, width, height, confidence, classId);
+
+var duplicates = AdaptiveTargetTracker.SuppressDuplicates(new[]
+{
+    Box(0), Box(1, x: 1001, confidence: .7), Box(2, x: 1000, classId: 1), Box(3, x: 1100),
+    Box(4, confidence: .1), Box(5, x: double.NaN), Box(6, height: -1)
+});
+Check(duplicates.Count == 3 && duplicates.Any(d => d.SourceIndex == 0) && duplicates.All(d => d.SourceIndex != 1),
+    "class-specific NMS suppresses duplicates and rejects invalid/low confidence boxes");
+Check(Near(AdaptiveTargetTracker.IntersectionOverUnion(Box(0), Box(1)), 1), "IoU uses center coordinates");
+
+var tracker = new AdaptiveTargetTracker();
+var first = tracker.Update(0, new[] { Box(0), Box(1, x: 1100) }, 960, 540)!;
+var next = tracker.Update(.02, new[] { Box(9, x: 1002), Box(7, x: 1101) }, 960, 540)!;
+Check(next.Id == first.Id && next.Detection.SourceIndex == 9 && tracker.VisibleTracks.Count == 2,
+    "track identity survives source-index reorder while all targets are tracked");
+Check(next.VelocityX > 0 && next.VelocityX < 100, "velocity is smoothed in pixels per second");
+Check(tracker.Update(.04, Array.Empty<DetectionSample>(), 960, 540) == null, "missing detection never produces ghost output");
+var resumed = tracker.Update(.11, new[] { Box(0, x: 1003) }, 960, 540)!;
+Check(resumed.Id == first.Id && resumed.VelocityX == 0 && resumed.ConsecutiveFrames == 1,
+    "brief reacquisition retains identity but resets stale velocity and confirmation");
+var afterGap = tracker.Update(.4, new[] { Box(0, x: 1003) }, 960, 540)!;
+Check(afterGap.Id != first.Id && afterGap.ConsecutiveFrames == 1, "long gaps cannot retain an old identity");
+
+tracker.Reset();
+first = tracker.Update(0, new[] { Box(0, x: 1080, width: 30, height: 60) }, 960, 540)!;
+tracker.Update(.1, new[] { Box(0, x: 1080, width: 30, height: 60) }, 960, 540);
+var competitors = new[] { Box(0, x: 1080, width: 30, height: 60), Box(1, x: 970, width: 30, height: 60) };
+Check(tracker.Update(.16, competitors, 960, 540)!.Id == first.Id, "one centered competitor cannot steal the lock");
+Check(tracker.Update(.18, competitors, 960, 540)!.Id == first.Id, "two competitor frames retain lock");
+Check(tracker.Update(.20, competitors, 960, 540)!.Id != first.Id, "three clearly better frames can switch after dwell");
+Check(tracker.Update(.21, new[] { Box(0, x: 5000) }, 960, 540) == null, "out-of-range detections do not generate a target");
+
+CalibrationResult Calibrate(bool noisy = false, bool oneDirection = false, double yGain = -3)
+{
+    var session = new GuidedCalibration("held:settings-a", 1080);
+    double t = 0, x = 1000, y = 540;
+    session.Observe(new(t, 1, x, y, 0, 0, true, TargetHeight: 120));
+    for (int axis = 0; axis < 2; axis++)
+        for (int i = 0; i < 36; i++)
+        {
+            t += .11;
+            double count = oneDirection || i % 6 < 3 ? 10 : -10;
+            double pixels = count * (axis == 0 ? -2 : yGain);
+            if (noisy && i % 2 == 0) pixels *= -.7;
+            if (axis == 0) x += pixels; else y += pixels;
+            session.Observe(new(t, 1, x, y, axis == 0 ? count : 0, axis == 1 ? count : 0, true, TargetHeight: 120));
+        }
+    return session.Evaluate();
+}
+
+var measured = Calibrate();
+Check(measured.IsUsable && measured.Success && Near(measured.PixelsPerCountX, -2) && Near(measured.PixelsPerCountY, -3),
+    "guided bidirectional stationary-target motion recovers signed pixels per raw count");
+Check(measured.FitX > .99 && measured.SamplesX >= 12 && measured.SamplesY >= 12,
+    "calibration retains fit and independent axis evidence");
+Check(!Calibrate(oneDirection: true).IsUsable, "one-direction motion is insufficient calibration evidence");
+Check(!Calibrate(noisy: true).IsUsable, "inconsistent moving target cannot pass the calibration fit");
+Check(Calibrate(yGain: 3).IsUsable, "inverted vertical response is calibrated instead of assumed");
+var sessionOutput = new GuidedCalibration("held:settings-a", 1080);
+sessionOutput.Observe(new(0, 1, 1000, 540, 0, 0, true));
+sessionOutput.Observe(new(.1, 1, 980, 540, 10, 0, true, true));
+Check(sessionOutput.SamplesX == 0 && sessionOutput.Status == "OutputMustBeDisabled", "generated output invalidates passive calibration intervals");
+var sessionIdentity = new GuidedCalibration("held:settings-a", 1080);
+sessionIdentity.Observe(new(0, 1, 1000, 540, 0, 0, true));
+sessionIdentity.Observe(new(.11, 2, 980, 540, 10, 0, true));
+Check(sessionIdentity.SamplesX == 0, "identity changes cannot create calibration displacement samples");
+var driftCalibration = new GuidedCalibration("held:settings-a", 1080);
+double driftTime = 0, driftX = 1000, driftY = 540;
+driftCalibration.Observe(new(0, 1, driftX, driftY, 0, 0, true));
+for (int axis = 0; axis < 2; axis++)
+    for (int i = 0; i < 36; i++)
+    {
+        double raw = i % 6 < 3 ? 10 : -10;
+        double movement = raw * (i < 18 ? -2 : -4);
+        if (axis == 0) driftX += movement; else driftY += movement;
+        driftCalibration.Observe(new(driftTime += .11, 1, driftX, driftY, axis == 0 ? raw : 0, axis == 1 ? raw : 0, true));
+    }
+Check(!driftCalibration.Evaluate().IsUsable, "calibration rejects a zoom/gain change halfway through sampling even when origin-fit R squared looks high");
+
+var options = new AdaptiveControlOptions { AimPointHeightFraction = .5 };
+var engine = new AdaptiveAimEngine(options);
+AdaptiveFrame Frame(double time, bool allowed = true, bool held = true, string key = "held:settings-a", double height = 140,
+    double x = 1000, double y = 540, double screenHeight = 1080) =>
+    new(time, 960, 540, screenHeight, new[] { Box(0, x, y, height: height) }, held, allowed, key);
+for (int i = 0; i < 10; i++)
+    Check(!engine.Update(Frame(i / 60.0)).HasCorrection, "uncalibrated frames never emit movement");
+engine.SetCalibration(measured);
+var initial = engine.Update(Frame(0));
+Check(!initial.HasCorrection, "first calibrated detection must stabilize before assistance");
+AdaptiveDecision decision = initial;
+for (int i = 1; i <= 30; i++) decision = engine.Update(Frame(i / 60.0));
+Check(decision.CountsX > 0 && decision.CountsY == 0 && decision.Status == "CalibratedAssistance",
+    "negative calibrated camera response generates positive horizontal correction");
+Check(!engine.Update(Frame(.52, allowed: false)).HasCorrection, "observation output guard stops correction immediately");
+Check(!engine.Update(Frame(.54, held: false)).HasCorrection, "activation release stops correction immediately");
+Check(!engine.Update(Frame(.56, key: "released:settings-a")).Calibrated, "calibration cannot silently apply to a different stance key");
+Check(!engine.Update(Frame(.58, screenHeight: 1440)).HasCorrection, "resolution change requires calibration");
+Check(!engine.Update(Frame(.8)).HasCorrection, "long inference gap clears movement and residuals");
+Check(!engine.Update(Frame(double.NaN)).HasCorrection, "non-finite frame timestamp cannot emit input");
+Check(!engine.Update(new(1, 960, 540, 1080, Array.Empty<DetectionSample>(), true, true, "held:settings-a")).HasCorrection,
+    "empty detections stop movement");
+
+engine.Reset();
+double totalCounts = 0;
+for (int i = 0; i < 180; i++)
+{
+    decision = engine.Update(Frame(i / 120.0, x: 1190, y: 600));
+    Check(Math.Sqrt(decision.CountsX * decision.CountsX + decision.CountsY * decision.CountsY) <= 24,
+        "each output obeys vector count cap");
+    totalCounts += Math.Sqrt(decision.CountsX * decision.CountsX + decision.CountsY * decision.CountsY);
+}
+Check(totalCounts < 600 * 1.5 + 3, "high-refresh output remains rate bounded");
+engine.Reset();
+for (int i = 0; i < 60; i++) decision = engine.Update(Frame(i / 60.0, allowed: false, height: 60));
+Check(decision.ContextKey == "Small/Slow", "small apparent image size automatically selects its subprofile");
+for (int i = 60; i < 63; i++) decision = engine.Update(Frame(i / 60.0, allowed: false, height: 270));
+Check(decision.ContextKey == "Small/Slow", "brief size changes do not flicker the active subprofile");
+for (int i = 63; i < 120; i++) decision = engine.Update(Frame(i / 60.0, allowed: false, height: 270));
+Check(decision.ContextKey == "Large/Slow", "persistent new apparent size selects a new subprofile");
+
+engine.Reset();
+for (int i = 0; i < 240; i++) engine.Update(Frame(i / 60.0, x: i % 2 == 0 ? 982 : 938));
+var adapted = engine.Snapshot();
+Check(adapted.Profiles.Length == 9 && adapted.Profiles.Any(p => p.ErrorSignCrossings >= 4),
+    "nine local contexts retain observed assisted-error crossings");
+Check(adapted.Profiles.Any(p => p.AdjustmentEvidence.StartsWith("RepeatedScreenErrorCrossings")),
+    "repeated error crossings reduce gain conservatively with explicit limited evidence");
+Check(adapted.Profiles.All(p => p.Gain is >= .06 and <= .22), "automatic adaptation stays inside hard bounds");
+
+foreach (double fps in new[] { 20.0, 30.0, 60.0, 120.0 })
+{
+    var loop = new AdaptiveAimEngine(options);
+    loop.SetCalibration(measured);
+    double position = 1100, minimum = position;
+    for (int i = 0; i < fps * 5; i++)
+    {
+        var response = loop.Update(Frame(i / fps, x: position));
+        position += response.CountsX * measured.PixelsPerCountX;
+        minimum = Math.Min(minimum, position);
+    }
+    Check(Math.Abs(position - 960) <= 3, $"closed loop converges on stationary target at {fps} FPS");
+    Check(minimum >= 958, $"closed loop bounds stationary-target overshoot at {fps} FPS");
+}
+var mixedLoop = new AdaptiveAimEngine(options);
+mixedLoop.SetCalibration(measured);
+double mixedTime = 0, mixedPosition = 1030, maximumError = 0;
+for (int i = 0; i < 500; i++)
+{
+    double dt = i % 3 == 0 ? .035 : .012;
+    mixedTime += dt;
+    // Independent screen motion and imperfect user correction are injected into the plant.
+    mixedPosition += 18 * dt + Math.Sin(i * .33) * .7;
+    var response = mixedLoop.Update(Frame(mixedTime, x: mixedPosition));
+    mixedPosition += response.CountsX * measured.PixelsPerCountX;
+    if (i > 120) maximumError = Math.Max(maximumError, Math.Abs(mixedPosition - 960));
+}
+Check(maximumError < 15, "variable-frame closed loop remains bounded with independent motion and imperfect user correction");
+
+engine.ObserveCameraGain(-4, -6, .5, 40);
+Check(engine.Snapshot().Calibration != null, "unreliable gain estimates cannot invalidate calibration");
+for (int i = 0; i < 3; i++) engine.ObserveCameraGain(-4, -6, .99, 40);
+Check(engine.Snapshot().Calibration == null, "repeated independently measured zoom/gain mismatch suspends calibration");
+decision = engine.Update(Frame(4.1));
+Check(!decision.HasCorrection && decision.Status == "CameraGainChangedRecalibrate", "suspended calibration cannot generate output");
+
+var temp = Path.Combine(Path.GetTempPath(), "AutoAimmy-control-checks-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(temp);
+try
+{
+    string path = Path.Combine(temp, "profile.json");
+    var persisted = adapted with { Calibration = measured, PlayerKey = "player-hash" };
+    AdaptiveProfileStore.Save(path, persisted);
+    var loaded = AdaptiveProfileStore.Load(path, out var error);
+    Check(error == null && loaded.PlayerKey == "player-hash" && loaded.Profiles.Length == 9 && loaded.Calibration!.IsUsable,
+        "local atomic checkpoint round-trips measured calibration and all context evidence");
+    var restored = new AdaptiveAimEngine(options, loaded);
+    Check(Near(restored.Snapshot().Profiles.Sum(p => p.Gain), loaded.Profiles.Sum(p => p.Gain)),
+        "engine restores bounded context gains across restart");
+    Check(Directory.GetFiles(temp).Length == 1, "successful checkpoint leaves no temporary files");
+    File.WriteAllText(path, "{ broken json");
+    loaded = AdaptiveProfileStore.Load(path, out error);
+    Check(error != null && loaded.Calibration == null, "corrupt profile safely resets with a diagnostic");
+    File.WriteAllText(path, new string('x', 65537));
+    Check(AdaptiveProfileStore.Load(path, out error).Calibration == null && error != null, "oversize profile is rejected");
+    var sanitized = AdaptiveProfileStore.Sanitize(persisted with
+    {
+        PlayerKey = "C:\\private\\account", Calibration = measured with { PixelsPerCountX = double.NaN },
+        Profiles = new[] { new ContextProfile { Key = "Small/Slow", Gain = 50, SmoothingSeconds = double.NaN },
+            new ContextProfile { Key = "arbitrary-private-content", Gain = .15 } }
+    });
+    Check(sanitized.PlayerKey == "local" && sanitized.Calibration == null && sanitized.Profiles.Length == 1 &&
+        sanitized.Profiles[0].Gain == .22 && double.IsFinite(sanitized.Profiles[0].SmoothingSeconds),
+        "untrusted persisted settings cannot escape finite bounds or known context keys");
+}
+finally { Directory.Delete(temp, true); }
+
+Console.WriteLine($"{checks} adaptive control checks passed. Synthetic trajectories verify behavior; real-game quality remains unvalidated.");

@@ -70,7 +70,7 @@ try {
         Write-Host 'Launch checks passed. Observation configuration enabled. Application not launched.'
         return
     }
-    Write-Host 'Observation only. Load a model for your offline trainer; recording begins when it is loaded.'
+    Write-Host 'Observation by default. Load your model, then use AUTO for local recording, calibration and optional experimental assistance.'
     Start-Process -FilePath $applicationExe -WorkingDirectory $binaryDirectory -WindowStyle Hidden
 } finally {
     Pop-Location
