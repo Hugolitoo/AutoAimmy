@@ -71,6 +71,9 @@ public partial class AutoAimmyMenuControl : UserControl
         LiveValuesText.Text = $"Texte arme reconnu : {hud.WeaponText ?? "inconnu"} · texte lunette : {hud.ScopeText ?? "inconnu"} · ADS réel : inconnu" +
             (hud.FrameUtc.HasValue ? $"\nDernière image lue : {hud.FrameUtc.Value.ToLocalTime():HH:mm:ss}" : "");
         LiveDetailText.Text = hud.Detail ?? "Lecture locale du HUD, sans enregistrer d’images ni envoyer le jeu à un serveur.";
+        var validation = Aimmy2.VisualAnalysis.HudValidationCapture.Instance.State;
+        ValidationCaptureButton.IsEnabled = !validation.Active;
+        ValidationCaptureText.Text = validation.Message + (validation.Report!=null ? "\nZIP : "+Path.GetFileName(validation.Report) : "");
         try
         {
             latestReport = Directory.Exists(ObservationMode.ExportDirectory) ? new DirectoryInfo(ObservationMode.ExportDirectory)
@@ -150,6 +153,11 @@ public partial class AutoAimmyMenuControl : UserControl
         catch (Exception error) { ActionMessage.Text = "Ouverture impossible : " + error.Message; }
     }
     private void OpenModels_Click(object sender, RoutedEventArgs e) => OpenFolder(Path.Combine(ObservationMode.DataDirectory, "bin", "models"));
+    private void StartValidation_Click(object sender, RoutedEventArgs e)
+    {
+        try { Aimmy2.VisualAnalysis.HudValidationCapture.Instance.Start(); RefreshView(); }
+        catch(Exception error) { ActionMessage.Text="Collecte impossible : "+error.Message; }
+    }
     private void OpenReports_Click(object sender, RoutedEventArgs e) => OpenFolder(ObservationMode.ExportDirectory);
     private void ShowLatestReport_Click(object sender, RoutedEventArgs e)
     {

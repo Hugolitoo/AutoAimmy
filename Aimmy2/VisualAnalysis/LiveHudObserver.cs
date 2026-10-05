@@ -74,9 +74,11 @@ internal sealed class LiveHudObserver : IDisposable
         int weaponStreak = 0, scopeStreak = 0;
         try
         {
+            using var captureManager = new global::AILogic.CaptureManager();
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
             while (await timer.WaitForNextTickAsync(stop.Token))
             {
+                HudValidationCapture.Instance.Tick();
                 if (!GameInForeground(out var gameBounds))
                 {
                     priorWeapon = priorScope = null; weaponStreak = scopeStreak = 0;
@@ -93,17 +95,27 @@ internal sealed class LiveHudObserver : IDisposable
                         continue;
                     }
                     int cropWidth = Math.Max(1, bounds.Width * 2 / 5), cropHeight = Math.Max(1, bounds.Height * 2 / 5);
-                    using var capture = new Bitmap(cropWidth, cropHeight, PixelFormat.Format32bppArgb);
-                    using (var graphics = Graphics.FromImage(capture))
-                        graphics.CopyFromScreen(bounds.Right - cropWidth, bounds.Bottom - cropHeight, 0, 0, capture.Size);
+                    DateTime capturedAt = DateTime.UtcNow;
+                    using var capture = captureManager.ScreenGrab(new Rectangle(bounds.Right-cropWidth,bounds.Bottom-cropHeight,cropWidth,cropHeight));
+                    if (capture == null) {
+                        Volatile.Write(ref latest,new(DateTime.UtcNow,"Unavailable",null,null,Detail:"Le mode de capture n’a pas fourni d’image du HUD. Vérifiez le moniteur et le mode de capture d’Aimmy."));
+                        continue;
+                    }
                     double scale = Math.Min(1, 1600.0 / Math.Max(cropWidth, cropHeight));
                     using var resized = new Bitmap(capture, new Size(Math.Max(1, (int)(cropWidth * scale)), Math.Max(1, (int)(cropHeight * scale))));
+                    if (HudValidationCapture.Instance.State.Active && GameInForeground(out var currentBounds) && currentBounds==gameBounds)
+                    {
+                        var centerBox = new Rectangle(bounds.Left+bounds.Width/4,bounds.Top+bounds.Height/5,bounds.Width/2,bounds.Height*3/5);
+                        using var center = captureManager.ScreenGrab(centerBox);
+                        if(center!=null && GameInForeground(out var afterBounds) && afterBounds==gameBounds)
+                            HudValidationCapture.Instance.Add(center,capture,capturedAt);
+                    }
                     var parsed = HudTextParser.Parse(await ReadTextAsync(resized));
                     weaponStreak = parsed.Weapon != null && parsed.Weapon == priorWeapon ? weaponStreak + 1 : parsed.Weapon == null ? 0 : 1;
                     scopeStreak = parsed.Scope != null && parsed.Scope == priorScope ? scopeStreak + 1 : parsed.Scope == null ? 0 : 1;
                     priorWeapon = parsed.Weapon; priorScope = parsed.Scope;
                     Volatile.Write(ref latest, new(DateTime.UtcNow, "ReadingHUD", weaponStreak >= 2 ? parsed.Weapon : null, scopeStreak >= 2 ? parsed.Scope : null,
-                        Detail:"Texte du HUD lu localement (1 lecture/s, 2 lectures cohérentes). Les icônes seules et l’état ADS ne sont pas reconnus.", FrameUtc:DateTime.UtcNow));
+                        Detail:"Texte du HUD lu localement (jusqu’à 1 lecture/s, 2 lectures cohérentes). Les icônes seules et l’état ADS ne sont pas reconnus.", FrameUtc:capturedAt));
                 }
                 catch (Exception error)
                 {
@@ -114,5 +126,5 @@ internal sealed class LiveHudObserver : IDisposable
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
     }
-    public void Dispose() { stop.Cancel(); }
+    public void Dispose() { stop.Cancel(); HudValidationCapture.Instance.Stop(); }
 }

@@ -11,7 +11,7 @@ using LogLevel = Other.LogManager.LogLevel;
 
 namespace AILogic
 {
-    internal class CaptureManager
+    internal class CaptureManager : IDisposable
     {
         #region Variables
         private string _currentCaptureMethod = ""; // Track current method

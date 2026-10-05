@@ -27,7 +27,11 @@ Elle reconnait du texte explicite, pas les icones seules. Deux lectures coherent
 Minimiser Aimmy et jouer ; la page montre la date et le dernier texte reconnu.
 DPI materiel et etat ADS reel restent inconnus. La reconnaissance n'est pas encore validee
 sur votre HUD : les resultats sont experimentaux, pas des detections garanties.
-visual-events.jsonl accompagne le rapport. Aucune image ni transcription complete sauvegardee.
+visual-events.jsonl accompagne le rapport. En mode OCR normal, aucune image ni transcription sauvegardee.
+Pour preparer la reconnaissance d'icones et de visee, cliquer Collecter 20 images pour validation,
+remettre R6 au premier plan et alterner avec/sans visee pendant environ 20-40 secondes.
+Ce clic sauvegarde localement 20 paires centre/HUD et cree AutoAimmy-validation-...zip dans exports.
+Envoyer ce ZIP manuellement. Les images restent non annotees ; aucune reconnaissance ADS n'est encore activee.
 Windows 10 version 2004 ou Windows 11 et une langue OCR Windows sont requis.
 
 Observation uniquement : l'application ne commande pas la souris et ne reentraine pas le modele.
