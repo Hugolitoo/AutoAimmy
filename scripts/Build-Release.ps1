@@ -18,7 +18,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Analyzer checks failed.' }
     & $dotnetExe publish 'Aimmy2\Aimmy2.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 "-p:Version=$Version" -p:PublishSingleFile=false -o $publishDirectory --nologo -v:q
     if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
-    foreach ($file in @('Client.ps1','Updater.psm1')) { Copy-Item -LiteralPath (Join-Path $projectRoot ('distribution\' + $file)) -Destination $publishDirectory }
+    foreach ($file in @('Client.ps1','Updater.psm1','PlayerProfiles.psm1')) { Copy-Item -LiteralPath (Join-Path $projectRoot ('distribution\' + $file)) -Destination $publishDirectory }
     foreach ($file in @('LICENSE','SourceAvailable.md')) { Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $publishDirectory }
     [ordered]@{ Product='AutoAimmy'; Version=$Version; Channel=$Channel; Runtime='win-x64'; ObservationOnly=$true } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $publishDirectory 'release.json') -Encoding UTF8
@@ -64,6 +64,8 @@ try {
         'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0bootstrap.ps1" -Action Update' + "`r`npause`r`n"
     [IO.File]::WriteAllText((Join-Path $releaseRoot 'Reparer-mise-a-jour.cmd'), $repairCommand, [Text.Encoding]::ASCII)
     Copy-Item -LiteralPath (Join-Path $releaseRoot 'Reparer-mise-a-jour.cmd') -Destination $installRoot
+    Import-Module (Join-Path $projectRoot 'distribution\PlayerProfiles.psm1') -Force
+    Install-ProfileShortcut $installRoot
     $installerZip = Join-Path $releaseRoot 'AutoAimmy-win-x64.zip'
     Compress-Archive -LiteralPath $installRoot -DestinationPath $installerZip -CompressionLevel Optimal
     Write-Host "Ready to send: $installerZip"

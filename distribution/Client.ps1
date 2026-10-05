@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('Launch','Update','Rollback','Export','Connect','Check','Configure')][string]$Action = 'Launch', [switch]$Offline)
+param([Parameter(Mandatory=$true)][string]$Root, [ValidateSet('Launch','Update','Rollback','Export','Connect','Check','Configure','Profile')][string]$Action = 'Launch', [switch]$Offline)
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Updater.psm1') -Force
 $Root = [IO.Path]::GetFullPath($Root)
@@ -21,6 +21,12 @@ try {
         'Check' { Write-Host "Installed: $((Get-InstalledState $Root).Current)"; return }
     }
     Assert-AppStopped $Root
+    if ($Action -eq 'Profile') {
+        Import-Module (Join-Path $PSScriptRoot 'PlayerProfiles.psm1') -Force
+        Install-ProfileShortcut $Root
+        $null = Invoke-PlayerProfileMenu $Root
+        return
+    }
     if (!$Offline) {
         try { Invoke-UpdateCheck $Root } catch { Write-Warning "Update unavailable: $($_.Exception.Message). Using installed version." }
     }
@@ -38,6 +44,9 @@ try {
     }
     if ($Action -eq 'Configure') { return }
     if (!$options.Enabled -or !$options.OfflineTrainerConfirmed) { throw 'This distribution requires observation mode and offline trainer confirmation.' }
+    Import-Module (Join-Path $versionDirectory 'PlayerProfiles.psm1') -Force
+    Install-ProfileShortcut $Root
+    $null = Initialize-PlayerProfile $Root
     $env:AUTOAIMMY_DATA_DIR = Join-Path $Root 'data'
     $env:AUTOAIMMY_VERSION = $state.Current
     # Self-contained build does not require a developer SDK or a system runtime.

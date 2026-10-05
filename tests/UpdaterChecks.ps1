@@ -72,11 +72,12 @@ Assert-Check ((Get-InstalledState $root).Current -eq '0.1.0') 'unsafe ZIP does n
 $session = Join-Path $root 'data\sessions\sample'
 $null = New-Item -ItemType Directory -Path $session
 foreach ($name in @('analysis.json','analysis.txt','quality.json','engagements.jsonl','events.jsonl')) { Set-Content -LiteralPath (Join-Path $session $name) -Value '{}' }
+Set-Content -LiteralPath (Join-Path $session 'context.json') -Value '{"SettingsSource":"UserDeclared"}'
 Set-Content -LiteralPath (Join-Path $root 'data\github-access.xml') -Value 'not a real credential'
 $report = Export-TestReport $root
 $zip = [IO.Compression.ZipFile]::OpenRead($report)
 try {
-    Assert-Check ($zip.Entries.Count -eq 4) 'export selected report files'
+    Assert-Check ($zip.Entries.Count -eq 5) 'export selected report files including session context'
     Assert-Check (@($zip.Entries | Where-Object { $_.Name -in @('events.jsonl','github-access.xml') }).Count -eq 0) 'exclude raw events and credentials'
 } finally { $zip.Dispose() }
 Write-Host "PASS: $checks updater checks. Fixtures preserved at $fixture"

@@ -12,13 +12,15 @@ public sealed class GameplayRecorder : IAsyncDisposable
     private long dropped;
     private readonly string appVersion;
     private readonly IReadOnlyDictionary<string, object?>? telemetry;
+    private readonly PlayerSessionContext? sessionContext;
     public long DroppedEvents => Interlocked.Read(ref dropped);
     public Task Completion => worker;
     public string DirectoryPath { get; }
-    public GameplayRecorder(string directory, int capacity = 8192, string appVersion = "development", IReadOnlyDictionary<string, object?>? telemetry = null)
+    public GameplayRecorder(string directory, int capacity = 8192, string appVersion = "development", IReadOnlyDictionary<string, object?>? telemetry = null, PlayerSessionContext? sessionContext = null)
     {
         this.appVersion = appVersion;
         this.telemetry = telemetry;
+        this.sessionContext = sessionContext;
         DirectoryPath = directory;
         channel = Channel.CreateBounded<GameplayEvent>(new BoundedChannelOptions(capacity)
         { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
@@ -33,6 +35,8 @@ public sealed class GameplayRecorder : IAsyncDisposable
     private async Task ConsumeAsync()
     {
         Directory.CreateDirectory(DirectoryPath);
+        if (sessionContext != null)
+            await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "context.json"), JsonSerializer.Serialize(sessionContext, new JsonSerializerOptions { WriteIndented = true }));
         using var events = new StreamWriter(Path.Combine(DirectoryPath, "events.jsonl"), false, System.Text.Encoding.UTF8, 65536);
         using var engagements = new StreamWriter(Path.Combine(DirectoryPath, "engagements.jsonl"), false, System.Text.Encoding.UTF8, 65536);
         var segmenter = new EngagementSegmenter();
@@ -52,7 +56,8 @@ public sealed class GameplayRecorder : IAsyncDisposable
         segmenter.Finish();
         var profile = analyzer.Analyze();
         await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "analysis.json"), JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
-        await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "analysis.txt"), $"AutoAimmy version: {appVersion}\n" + SessionAnalyzer.Report(profile, DroppedEvents));
+        string contextText = sessionContext == null ? "" : $"Declared player profile: {sessionContext.Settings?.Label ?? sessionContext.Status}; weapon: {sessionContext.Settings?.Weapon ?? "unknown"}; scope: {sessionContext.Settings?.Scope ?? "unknown"}. Actual ADS state is unobserved. See context.json.\n";
+        await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "analysis.txt"), $"AutoAimmy version: {appVersion}\n" + contextText + SessionAnalyzer.Report(profile, DroppedEvents));
         await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "quality.json"), JsonSerializer.Serialize(new { AppVersion = appVersion, DroppedEvents, Input = "DesktopCursorPollingAndPassiveRawMouse", SampleIntervalMs = 8, TargetStaleAfterMs = 150, Telemetry = telemetry }));
     }
     public async ValueTask DisposeAsync()

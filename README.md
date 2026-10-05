@@ -1,5 +1,7 @@
 # AutoAimmy
 
+Version 0.1.4 adds saved player profiles: enter your settings once, reuse the active profile at launch, and include an immutable context snapshot with each report. Use Profil-joueur.cmd to switch profiles. These values are user-declared; visual recognition of weapon, scope and ADS is not implemented yet. See [player profiles](docs/Player-profiles.md).
+
 Experimental, observation-only gameplay analyzer for **offline aim trainers and sandboxes**. Noncommercial fork of [Aimmy](https://github.com/Babyhamsta/Aimmy).
 
 Download the first installation from [Releases](https://github.com/Hugolitoo/AutoAimmy/releases): **AutoAimmy-win-x64.zip**. Extract the entire ZIP and open **AutoAimmy.cmd**. Windows x64 and the .NET desktop runtime are bundled; no developer SDK is needed.

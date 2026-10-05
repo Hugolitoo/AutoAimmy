@@ -97,3 +97,23 @@ Check(dropped > 0 && written + dropped == 25000, "bounded overflow accounting an
 Check(File.Exists(Path.Combine(saturatedDirectory, "analysis.txt")), "report despite overflow");
 Console.WriteLine($"PASS: {checks} checks. Export inspected at {temp}");
 
+string settingsDirectory = Path.Combine(temp, "settings");
+Directory.CreateDirectory(settingsDirectory);
+string settingsPath = Path.Combine(settingsDirectory, "active-profile.json");
+Check(PlayerSessionContext.Load(settingsDirectory).Status == "NotConfigured", "missing profile remains unknown");
+await File.WriteAllTextAsync(settingsPath, "{\"Schema\":1,\"Label\":\"Test profile\",\"Weapon\":\"M4\",\"Dpi\":1600,\"Scope\":\"2.5x\",\"AdsSensitivity\":55,\"AdsUsageDeclared\":\"melange\",\"Secret\":\"not exported\"}");
+var snapshot = PlayerSessionContext.Load(settingsDirectory);
+Check(snapshot.Settings?.Dpi == 1600 && snapshot.Settings?.AdsSensitivity == 55 && snapshot.ObservedAdsState == "Unknown", "declared settings never imply observed ADS");
+await File.WriteAllTextAsync(settingsPath, "{\"Schema\":1,\"Label\":\"Second profile\",\"Dpi\":800}");
+Check(snapshot.Settings?.Dpi == 1600 && PlayerSessionContext.Load(settingsDirectory).Settings?.Dpi == 800, "recording snapshot survives active profile changes");
+string contextualSession = Path.Combine(temp, "contextual");
+await using (var recorder = new GameplayRecorder(contextualSession, sessionContext: snapshot))
+    foreach (var sample in trajectory) recorder.TryRecord(sample);
+var contextJson = await File.ReadAllTextAsync(Path.Combine(contextualSession, "context.json"));
+Check(contextJson.Contains("1600") && !contextJson.Contains("Secret") && !contextJson.Contains("not exported"), "context whitelist excludes undeclared private fields");
+await File.WriteAllTextAsync(settingsPath, "{\"Schema\":1,\"Dpi\":-1}");
+Check(PlayerSessionContext.Load(settingsDirectory).Status == "InvalidProfile", "invalid profile is not trusted");
+await File.WriteAllTextAsync(settingsPath, "broken JSON");
+Check(PlayerSessionContext.Load(settingsDirectory).Status == "InvalidProfile", "malformed profile reported as invalid");
+Console.WriteLine($"PASS: {checks} total checks including session context.");
+

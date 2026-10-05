@@ -63,7 +63,8 @@ internal sealed class ObservationSession : IDisposable
         string root = Path.GetFullPath(options.OutputDirectory, ObservationMode.DataDirectory);
         recorder = new(Path.Combine(root, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8]), options.QueueCapacity,
             Environment.GetEnvironmentVariable("AUTOAIMMY_VERSION") ?? typeof(ObservationSession).Assembly.GetName().Version?.ToString() ?? "development",
-            new Dictionary<string, object?> { ["AimReference"] = options.AimReference.ToString(), ["RawMouseAvailable"] = rawMouse.TryRead(out _, out _, out _), ["RawMouseFailure"] = rawMouse.Failure, ["Calibration"] = "Uncalibrated counts; angular metrics unavailable", ["DetectionValidation"] = "Not confirmed" });
+            new Dictionary<string, object?> { ["AimReference"] = options.AimReference.ToString(), ["RawMouseAvailable"] = rawMouse.TryRead(out _, out _, out _), ["RawMouseFailure"] = rawMouse.Failure, ["Calibration"] = "Uncalibrated counts; angular metrics unavailable", ["DetectionValidation"] = "Not confirmed" },
+            PlayerSessionContext.Load(ObservationMode.DataDirectory));
         sampler = Task.Run(SampleAsync);
         _ = sampler.ContinueWith(task =>
         {

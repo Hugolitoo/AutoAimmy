@@ -2,6 +2,8 @@ AUTOAIMMY — TEST OFFLINE / AIM TRAINER
 
 1. Extraire TOUT le ZIP dans un dossier, par exemple Documents\AutoAimmy.
 2. Double-cliquer AutoAimmy.cmd. Aucun SDK ni runtime a installer.
+   Au premier lancement : N cree un profil avec vos reglages, S garde les valeurs inconnues.
+   Ce questionnaire ne revient pas a chaque session. Profil-joueur.cmd change le profil actif.
 3. Mettre le modele ONNX du trainer dans data\bin\models.
 4. Ouvrir le trainer offline et charger le modele dans AutoAimmy.
 5. Verifier OBSERVING. L'application ne commande pas la souris.
@@ -14,6 +16,8 @@ AUTOAIMMY — TEST OFFLINE / AIM TRAINER
 
 Les reglages et sessions sont conserves dans data. Ne jamais supprimer ce dossier.
 Les rapports ne sont jamais envoyes automatiquement.
+Le profil actif (reglages declares) est copie dans chaque nouveau rapport via context.json.
+Changer de profil si vous changez d'arme, de lunette ou de reglages ; l'application ne les lit pas dans le jeu.
 Pour changer de reference, lancer Configurer-viseur.cmd (nouvelle installation),
 ou modifier AimReference dans data\adaptive.json pour une ancienne installation.
 1 = curseur mobile ; 2 = viseur fixe au centre. Aucun reglage angulaire n'est devine.
