@@ -9,9 +9,8 @@ $result = & (Get-Module PlayerProfiles) {
     try {
         foreach ($value in @('N','Test M4','Sandbox','M4','incorrect','NaN','1600','3','3','2.5x','55','90','3:2','1920x1080','melange')) { $script:answers.Enqueue($value) }
         $created = Invoke-PlayerProfileMenu $fixture
-        $reused = Initialize-PlayerProfile $fixture
         if ($script:answers.Count -ne 0) { throw 'Unconsumed wizard answers' }
-        if ($created.Dpi -ne 1600 -or $created.AdsSensitivity -ne 55 -or $reused.Id -ne $created.Id) { throw 'Profile persistence mismatch' }
+        if ($created.Dpi -ne 1600 -or $created.AdsSensitivity -ne 55) { throw 'Profile persistence mismatch' }
         $script:answers.Enqueue('S')
         $unknown = Invoke-PlayerProfileMenu $fixture
         if ($null -ne $unknown.Dpi) { throw 'Unknown DPI fabricated' }
@@ -25,8 +24,9 @@ $result = & (Get-Module PlayerProfiles) {
         $copied = Invoke-PlayerProfileMenu $fixture
         if ($copied.Id -eq $created.Id -or $copied.Dpi -ne 1600 -or $copied.HorizontalSensitivity -ne 3 -or $copied.Resolution -ne '1920x1080' -or $copied.Scope -ne '1x' -or $copied.AdsSensitivity -ne 34) { throw 'Profile copy lost shared settings or reused identity' }
         if ((Get-Content (Join-Path $fixture ('data\profiles\' + $created.Id + '.json')) -Raw | ConvertFrom-Json).Scope -ne '2.5x') { throw 'Profile copy changed original' }
-        $null = Initialize-PlayerProfile $fixture
-        'PASS: first setup, numeric validation, launch reuse without questions, unknown values, saved selection and shortcut.'
+        $automatic = Initialize-PlayerProfile $fixture
+        if ($automatic.Source -ne 'SettingsFile' -or $null -ne $automatic.Dpi -or $null -ne $automatic.Weapon) { throw 'Automatic import reused unverified manual context' }
+        'PASS: optional legacy profiles and automatic launch without questions or stale declared values.'
     } finally { Remove-Item -LiteralPath Function:script:Read-Host }
 } $root
 Write-Host $result

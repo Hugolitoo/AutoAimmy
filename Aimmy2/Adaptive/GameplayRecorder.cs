@@ -61,7 +61,7 @@ public sealed class GameplayRecorder : IAsyncDisposable
         segmenter.Finish();
         var profile = analyzer.Analyze();
         await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "analysis.json"), JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
-        string contextText = sessionContext == null ? "" : $"Declared player profile: {sessionContext.Settings?.Label ?? sessionContext.Status}; weapon: {sessionContext.Settings?.Weapon ?? "unknown"}; scope: {sessionContext.Settings?.Scope ?? "unknown"}. Actual ADS state is unobserved. See context.json.\n";
+        string contextText = sessionContext == null ? "" : $"Player settings source: {sessionContext.SettingsSource}; profile: {sessionContext.Settings?.Label ?? sessionContext.Status}; import status: {sessionContext.Settings?.ImportStatus ?? "not applicable"}; weapon: {sessionContext.Settings?.Weapon ?? "unknown"}; scope: {sessionContext.Settings?.Scope ?? "unknown"}. File settings may differ from unsaved in-game settings. Actual ADS state is unobserved. See context.json.\n";
         await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "analysis.txt"), $"AutoAimmy version: {appVersion}\n" + contextText + SessionAnalyzer.Report(profile, DroppedEvents));
         await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "quality.json"), JsonSerializer.Serialize(new { AppVersion = appVersion, DroppedEvents, Input = "DesktopCursorPollingAndPassiveRawMouse", SampleIntervalMs = 8, TargetStaleAfterMs = 150, Telemetry = telemetry }));
         // Complete buffered files before creating the local, whitelisted report.

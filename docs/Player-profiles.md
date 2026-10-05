@@ -1,29 +1,21 @@
-# Profils enregistres — 0.1.4
+# Reglages automatiques — 0.1.6
 
-Au premier lancement, choisir N pour creer un profil. DPI, sensibilites, lunette, sensibilite ADS, FOV, ratio et resolution sont demandes une fois. Entree laisse une valeur inconnue. S permet de continuer sans renseigner les reglages et memorise ce choix.
+Aucun questionnaire au lancement. AutoAimmy cherche GameSettings.ini dans Documents Windows (y compris Documents redirige dans OneDrive) puis dans Documents du profil Windows, sous My Games/Rainbow Six - Siege. Il lit uniquement ce fichier et ne le modifie jamais.
 
-Aux lancements suivants, le profil actif est reutilise sans nouveau questionnaire. Profil-joueur.cmd permet de choisir un profil deja enregistre ou d'en creer un nouveau si les reglages changent. L'application doit etre fermee pour changer le profil.
+Quand un seul fichier est trouve, les champs reconnus et valides sont importes : sensibilites horizontale et verticale, multiplicateurs souris/ADS, sensibilites ADS globales et par grossissement, activation des sensibilites ADS specifiques, FOV et resolution. Le code enum du ratio est conserve sous AspectRatioSetting ; aucune correspondance non verifiee vers un ratio textuel n'est inventee.
 
-Les profils restent dans data/profiles et le choix actif dans data/active-profile.json. Ces fichiers survivent aux mises a jour. Ne pas enregistrer un mot de passe, un jeton ou un identifiant personnel dans les champs libres.
+La lecture se fait a chaque lancement et avec Profil-joueur.cmd. Ce raccourci ne demande plus de saisir les reglages : il relit la configuration et affiche le resultat. Le profil automatique est stocke dans data/active-profile.json. L'ancien profil actif est sauvegarde et les anciens profils dans data/profiles sont conserves, mais leurs armes, lunettes et DPI declares ne sont pas repris automatiquement.
 
-Au chargement du modele, l'enregistreur prend une copie immuable du profil. context.json accompagne chaque nouvelle session et son export. Une session deja enregistree n'est pas modifiee par un changement ulterieur de profil. Les rapports exportes contiennent volontairement les reglages de cette session, mais pas tous les profils ni la configuration generale. Aucune transmission automatique.
+## Informations encore inconnues
 
-Ces donnees sont declarees par le joueur. Un DPI, une arme ou une lunette ne sont pas lus automatiquement dans le jeu. AdsUsageDeclared est un contexte prevu, pas une detection d'ADS dans les images. L'etat ADS reel reste inconnu. Si les reglages changent dans le jeu sans changement de profil, le contexte joint au rapport peut etre obsolete.
+Le DPI materiel, l'arme equipee, la lunette equipee et l'etat ADS reel restent inconnus. Tous les reglages ADS disponibles sont conserves, sans choisir un grossissement suppose. La configuration sur disque peut etre ancienne ou differer de changements non enregistres dans le jeu. Sa date de modification est jointe au contexte ; aucune verification des valeurs actives en memoire n'est effectuee. Apres un changement, enregistrer les reglages dans le jeu puis relancer AutoAimmy. Pas d'injection ni de lecture de la memoire du jeu.
 
-## Quoi faire et pourquoi
+Si plusieurs fichiers de comptes sont trouves, ImportStatus=AmbiguousAccounts et les valeurs restent inconnues. L'application ne devine pas le compte actif a partir de la date des fichiers. Si aucun fichier n'est trouve, ImportStatus=NotFound. Une valeur invalide, un format non reconnu ou un fichier inaccessible n'est pas transforme en valeur supposee. Aucun questionnaire ne revient pour combler ces informations.
 
-1. Creer le profil une fois : eviter de retaper ou de redonner les reglages dans chaque message.
-2. Garder les reglages identiques pendant une session : comparer des observations recueillies dans le meme contexte.
-3. Changer de profil avant une session avec une autre arme, lunette ou sensibilite : ne pas melanger les contextes.
-4. Exporter le rapport apres fermeture : il contient maintenant le contexte et les mesures, et non des informations a reconstruire apres coup.
-5. Pour la prochaine etape visuelle, fournir une courte video avec HUD et transitions ADS/sans ADS : les anciens rapports ne contiennent pas ces images et ne suffisent pas a valider un detecteur visuel.
+## Rapports et mises a jour
 
-Pour une ancienne installation, mettre a jour puis fermer et relancer AutoAimmy.cmd. Le nouveau client cree automatiquement Profil-joueur.cmd, meme si le bootstrap de l'ancienne installation ne connait pas cette action.
+Au chargement du modele, le contexte courant est copie dans context.json. SettingsSource=SettingsFile distingue ces valeurs des anciens rapports UserDeclared. Seuls les champs autorises sont exportes, sans chemin de compte, identifiant de compte, contenu complet du fichier ou donnees ONLINE. Les sessions deja enregistrees ne changent pas.
 
-## Automatisation — 0.1.5
+Le ZIP du rapport est cree automatiquement dans exports en fin d'observation ou a la fermeture normale. Exporter-rapport.cmd permet de reessayer si l'export echoue. Aucun envoi automatique. Les mises a jour restent automatiques au demarrage ; AutoAimmy-hors-ligne.cmd permet de conserver la version.
 
-Le client recree Profil-joueur.cmd a chaque action, y compris Mettre-a-jour.cmd. Une installation qui vient de la 0.1.4 doit relancer AutoAimmy.cmd une fois pour executer le nouveau client. Les mises a jour suivantes se font sans question supplementaire ; le lancement hors ligne permet de rester sur une version.
-
-Le choix C reprend le profil actif dans un nouveau profil et conserve DPI, sensibilites generales, FOV, ratio, resolution et usage declare. Seuls nom, arme, lunette et sensibilite ADS sont demandes. Le profil original reste intact. Verifier les valeurs reprises avant de jouer si les reglages generaux ont change.
-
-Le rapport ZIP est cree automatiquement dans exports quand l'observation se termine ou quand l'application est fermee normalement. Il contient les memes cinq fichiers autorises que l'export manuel, sans evenements bruts ni tous les profils. Les fichiers de session sont preserves si la creation du ZIP echoue ; Exporter-rapport.cmd permet de reessayer. Aucun envoi automatique, aucune reconnaissance visuelle d'arme ou d'ADS ajoutee dans cette version.
+La prochaine etape est la reconnaissance visuelle de l'arme, de la lunette et des transitions ADS. Elle reste a developper et valider sur une courte video montrant le HUD. La 0.1.6 n'effectue pas de reentrainement du modele ni de reglage automatique de l'assistance.

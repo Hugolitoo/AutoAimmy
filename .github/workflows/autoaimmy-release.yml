@@ -33,6 +33,9 @@ jobs:
       - name: Validate launcher shortcut repair
         shell: powershell
         run: ./tests/ClientChecks.ps1
+      - name: Validate automatic game settings import
+        shell: powershell
+        run: ./tests/AutomaticSettingsChecks.ps1
       - name: Validate passive Windows observer
         shell: powershell
         run: dotnet run --project tests/WindowsObserverChecks/WindowsObserverChecks.csproj -c Release

@@ -1,6 +1,6 @@
 # AutoAimmy
 
-Version 0.1.5 repairs Profil-joueur.cmd on every launcher action, automatically installs future updates and creates a local report ZIP when observation finishes. Enter player settings once, reuse the active profile at launch, and choose C in the profile menu to reuse shared settings with a different weapon or scope. Each report includes an immutable context snapshot. These values are user-declared; visual recognition of weapon, scope and ADS is not implemented yet. See [player profiles](docs/Player-profiles.md).
+Version 0.1.6 removes the required profile questionnaire. Saved R6 settings are read automatically from GameSettings.ini on every launch: horizontal/vertical sensitivity, ADS values by magnification, multipliers, FOV, resolution and the aspect-ratio enum. Profil-joueur.cmd refreshes and displays the import without asking for settings. Hardware DPI, equipped weapon/scope and actual ADS state remain unknown; missing or ambiguous account settings are never guessed. Each report records SettingsFile provenance and the configuration file timestamp without account paths or identifiers. See [automatic settings](docs/Player-profiles.md).
 
 Experimental, observation-only gameplay analyzer for **offline aim trainers and sandboxes**. Noncommercial fork of [Aimmy](https://github.com/Babyhamsta/Aimmy).
 
@@ -15,4 +15,3 @@ For an existing 0.1.1 or 0.1.2 installation, version 0.1.3 fixes discovery when 
 The report leaves cognitive reaction time and uncalibrated angular metrics unavailable. See [measurement corrections](docs/Reticle-V0.1.2.md). Adaptive assistance and model training are future work.
 
 See [distribution instructions](docs/Distribution.md) and [analyzer architecture](docs/Adaptive-V0.1.md). Contributions and redistribution must respect the upstream [PolyForm Noncommercial license](LICENSE) and [source-available notice](SourceAvailable.md).
-

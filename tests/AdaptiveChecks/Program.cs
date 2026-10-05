@@ -135,3 +135,11 @@ await failedExport.DisposeAsync();
 Check(failedExport.ExportError != null && File.Exists(Path.Combine(temp, "failed-export", "analysis.json")), "export failure preserves recorded session");
 Console.WriteLine($"PASS: {checks} total checks including automatic local export.");
 
+await File.WriteAllTextAsync(settingsPath, "{\"Schema\":1,\"Source\":\"SettingsFile\",\"ImportStatus\":\"Imported\",\"HorizontalSensitivity\":3,\"AdsSensitivityByScope\":{\"ADSMouseSensitivity2xHalf\":55,\"PrivateKey\":10},\"AccountPath\":\"private account\"}");
+var automaticContext = PlayerSessionContext.Load(settingsDirectory);
+Check(automaticContext.SettingsSource == "SettingsFile" && automaticContext.Settings?.ImportStatus == "Imported" && automaticContext.ObservedAdsState == "Unknown", "file settings retain distinct source and do not imply observed ADS");
+var automaticJson = JsonSerializer.Serialize(automaticContext);
+Check(automaticJson.Contains("ADSMouseSensitivity2xHalf") && !automaticJson.Contains("PrivateKey") && !automaticJson.Contains("AccountPath"), "automatic settings export whitelists scope keys and excludes account paths");
+Check(automaticContext.Settings?.Dpi == null && automaticContext.Settings?.Scope == null && automaticContext.Settings?.Weapon == null, "automatic context leaves hardware and equipped items unknown");
+Console.WriteLine($"PASS: {checks} total checks including automatic settings provenance.");
+

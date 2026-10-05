@@ -93,15 +93,15 @@ function Invoke-PlayerProfileMenu {
 
 function Initialize-PlayerProfile {
     param([string]$Root)
-    $path = Join-Path $Root 'data\active-profile.json'
-    if (!(Test-Path -LiteralPath $path)) { $profile = Invoke-PlayerProfileMenu $Root }
-    else {
-        $profile = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-        if ($profile.Schema -ne 1) { throw 'Profil actif non reconnu. Ouvrir Profil-joueur.cmd.' }
+    Import-Module (Join-Path $PSScriptRoot 'AutomaticSettings.psm1') -Force
+    $profile = Sync-AutomaticPlayerProfile $Root
+    Write-Host ("Reglages R6 lus automatiquement : {0} | sensi {1}/{2} | FOV {3} | resolution {4}" -f
+        $profile.ImportStatus, $profile.HorizontalSensitivity, $profile.VerticalSensitivity, $profile.Fov, $profile.Resolution)
+    Write-Host 'Source : configuration enregistree sur disque, actualisee a chaque lancement. Aucun questionnaire.'
+    if ($profile.AdsSensitivityByScope.Count -gt 0) {
+        Write-Host ('Reglages ADS enregistres : ' + (($profile.AdsSensitivityByScope.GetEnumerator() | ForEach-Object { '{0}={1}' -f $_.Key.Replace('ADSMouseSensitivity',''),$_.Value }) -join ' | '))
     }
-    Write-Host ("Profil actif : {0} | arme {1} | DPI {2} | sensi {3}/{4} | lunette {5} | ADS {6}" -f
-        $profile.Label, $profile.Weapon, $profile.Dpi, $profile.HorizontalSensitivity, $profile.VerticalSensitivity, $profile.Scope, $profile.AdsSensitivity)
-    Write-Host 'Si les reglages ont change, fermer Aimmy puis ouvrir Profil-joueur.cmd.'
+    Write-Host 'DPI, arme et lunette equipee : inconnus. Aucune valeur ancienne reprise pour les deviner.'
     return $profile
 }
 

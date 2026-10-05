@@ -32,7 +32,7 @@ try {
     if ($Action -eq 'Profile') {
         Import-Module (Join-Path $PSScriptRoot 'PlayerProfiles.psm1') -Force
         Install-ProfileShortcut $Root
-        $null = Invoke-PlayerProfileMenu $Root
+        $null = Initialize-PlayerProfile $Root
         return
     }
     if (!$Offline) {
