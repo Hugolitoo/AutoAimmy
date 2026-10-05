@@ -1,4 +1,4 @@
-AUTOAIMMY 0.2.0 — SESSION LOCALE EXPERIMENTALE
+AUTOAIMMY — SESSION LOCALE EXPERIMENTALE
 
 1. Extraire tout le ZIP, puis ouvrir AutoAimmy.cmd.
    Pour une installation existante : Mettre-a-jour.cmd puis fermer/relancer.
