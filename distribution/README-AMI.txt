@@ -1,4 +1,4 @@
-AUTOAIMMY 0.1.7 — PAGE AUTOAIMMY / REGLAGES AUTOMATIQUES
+AUTOAIMMY 0.1.8 — COMPTES R6 / LECTURE EXPERIMENTALE DU HUD
 
 1. Extraire TOUT le ZIP dans un dossier, par exemple Documents\AutoAimmy.
 2. Double-cliquer AutoAimmy.cmd. Aucun SDK ni runtime a installer.
@@ -18,7 +18,17 @@ multiplicateurs, FOV, resolution et code du ratio. Les valeurs non reconnues res
 DPI materiel, arme equipee, lunette equipee et etat ADS reel ne sont pas encore detectes.
 Le fichier contient les reglages sauvegardes, pas necessairement les valeurs actives a cet instant.
 Apres un changement dans le jeu : enregistrer les reglages puis relancer AutoAimmy.
-Si plusieurs comptes R6 sont trouves, l'application ne devine pas lequel est actif.
+Si plusieurs comptes sont trouves, le dernier fichier sauvegarde est affiche comme candidat.
+Verifier les valeurs : choisir le bon ensemble dans la liste puis Utiliser ces reglages.
+Ce choix est memorise ; aucune sensibilite n'est a retaper.
+
+La lecture du HUD demarre automatiquement quand R6 est au premier plan.
+Elle reconnait du texte explicite, pas les icones seules. Deux lectures coherentes sont requises.
+Minimiser Aimmy et jouer ; la page montre la date et le dernier texte reconnu.
+DPI materiel et etat ADS reel restent inconnus. La reconnaissance n'est pas encore validee
+sur votre HUD : les resultats sont experimentaux, pas des detections garanties.
+visual-events.jsonl accompagne le rapport. Aucune image ni transcription complete sauvegardee.
+Windows 10 version 2004 ou Windows 11 et une langue OCR Windows sont requis.
 
 Observation uniquement : l'application ne commande pas la souris et ne reentraine pas le modele.
 Les reglages et sessions restent dans data. Ne jamais supprimer ce dossier.

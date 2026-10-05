@@ -10,7 +10,7 @@ public sealed record GameplayEvent(double Timestamp, double CursorX, double Curs
     double MouseDeltaX, double MouseDeltaY, bool LeftClick, TargetObservation? Target,
     long Sequence = 0, AimReference AimReference = AimReference.Cursor,
     double? AimX = null, double? AimY = null, double? RawMouseDeltaX = null,
-    double? RawMouseDeltaY = null, bool? MotionBaselineValid = null)
+    double? RawMouseDeltaY = null, bool? MotionBaselineValid = null, VisualHudObservation? Hud = null)
 {
     public double ReferenceX => AimX ?? CursorX;
     public double ReferenceY => AimY ?? CursorY;

@@ -150,6 +150,7 @@ namespace Aimmy2
 
             // Initialize DisplayManager FIRST before anything else that depends on display info
             DisplayManager.Initialize();
+            if (Aimmy2.Adaptive.ObservationMode.BlocksOutput) Aimmy2.VisualAnalysis.LiveHudObserver.Instance.Start();
 
             // Now that DisplayManager is initialized, we can create windows
             InitializeWindows();
@@ -608,6 +609,7 @@ namespace Aimmy2
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            Aimmy2.VisualAnalysis.LiveHudObserver.Instance.Dispose();
             if (_fileManager?.IsValueCreated == true)
             {
                 fileManager.InQuittingState = true;

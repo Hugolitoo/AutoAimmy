@@ -124,7 +124,7 @@ await automaticRecorder.DisposeAsync();
 Check(automaticRecorder.ExportPath != null && automaticRecorder.ExportError == null, "automatic report created after recorder drains");
 using (var zip = System.IO.Compression.ZipFile.OpenRead(automaticRecorder.ExportPath!))
 {
-    Check(zip.Entries.Count == 5 && zip.Entries.All(e => e.Name != "events.jsonl"), "automatic export contains only report whitelist and context");
+    Check(zip.Entries.Count == 6 && zip.Entries.All(e => e.Name != "events.jsonl"), "automatic export contains only report whitelist and context");
     using var reader = new StreamReader(zip.GetEntry("engagements.jsonl")!.Open());
     Check((await reader.ReadToEndAsync()) == await File.ReadAllTextAsync(Path.Combine(temp, "automatic", "engagements.jsonl")), "automatic report contains fully flushed engagements");
 }
@@ -142,4 +142,19 @@ var automaticJson = JsonSerializer.Serialize(automaticContext);
 Check(automaticJson.Contains("ADSMouseSensitivity2xHalf") && !automaticJson.Contains("PrivateKey") && !automaticJson.Contains("AccountPath"), "automatic settings export whitelists scope keys and excludes account paths");
 Check(automaticContext.Settings?.Dpi == null && automaticContext.Settings?.Scope == null && automaticContext.Settings?.Weapon == null, "automatic context leaves hardware and equipped items unknown");
 Console.WriteLine($"PASS: {checks} total checks including automatic settings provenance.");
+
+Check(HudTextParser.Parse("M4 2.5x") == ("M4", "2.5x"), "HUD explicit weapon and scope text");
+Check(HudTextParser.Parse("M416 1920x1080 ammo 25") == (null, null), "HUD substring and resolution are not weapon/scope detections");
+Check(HudTextParser.Parse("M4 MP5 1.0x 2.5x") == (null, null), "ambiguous HUD labels stay unknown");
+var visualRead = new VisualHudObservation(DateTime.UtcNow, "ReadingHUD", "M4", "2.5x");
+string visualSession = Path.Combine(temp, "visual-session");
+await using (var visualRecorder = new GameplayRecorder(visualSession))
+{
+    visualRecorder.TryRecord(Sample(0, 0) with { Hud=visualRead });
+    visualRecorder.TryRecord(Sample(.01, 1) with { Hud=visualRead });
+    visualRecorder.TryRecord(Sample(.02, 2) with { Hud=visualRead with {ReadUtc=visualRead.ReadUtc.AddSeconds(1), WeaponText=null} });
+}
+Check(File.ReadAllLines(Path.Combine(visualSession, "visual-events.jsonl")).Length == 2, "visual timeline deduplicates mouse-rate samples and records unknown transitions");
+Check(visualRead.AdsState == "Unknown", "OCR labels never imply confirmed ADS");
+Console.WriteLine($"PASS: {checks} total checks including visual HUD timeline.");
 

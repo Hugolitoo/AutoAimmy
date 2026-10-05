@@ -18,7 +18,7 @@ La lecture se fait a chaque lancement et avec Profil-joueur.cmd. Ce raccourci ne
 
 Le DPI materiel, l'arme equipee, la lunette equipee et l'etat ADS reel restent inconnus. Tous les reglages ADS disponibles sont conserves, sans choisir un grossissement suppose. La configuration sur disque peut etre ancienne ou differer de changements non enregistres dans le jeu. Sa date de modification est jointe au contexte ; aucune verification des valeurs actives en memoire n'est effectuee. Apres un changement, enregistrer les reglages dans le jeu puis relancer AutoAimmy. Pas d'injection ni de lecture de la memoire du jeu.
 
-Si plusieurs fichiers de comptes sont trouves, ImportStatus=AmbiguousAccounts et les valeurs restent inconnues. L'application ne devine pas le compte actif a partir de la date des fichiers. Si aucun fichier n'est trouve, ImportStatus=NotFound. Une valeur invalide, un format non reconnu ou un fichier inaccessible n'est pas transforme en valeur supposee. Aucun questionnaire ne revient pour combler ces informations.
+Depuis 0.1.8, si plusieurs fichiers sont trouves, le plus recent est affiche comme candidat : ImportStatus=ImportedCandidate. Ce choix ne prouve pas quel compte est actif. La page propose la liste des configurations avec leurs sensibilites/FOV/resolution et date, sans identifiant de compte. Choisir le bon ensemble puis Utiliser ces reglages memorise ce choix. Aucun nombre n'est a retaper. Les clefs locales et chemins de comptes ne sont pas inclus dans le contexte du rapport. Si aucun fichier n'est trouve, ImportStatus=NotFound. Une valeur invalide ou un fichier inaccessible reste inconnu.
 
 ## Rapports et mises a jour
 
@@ -26,4 +26,12 @@ Au chargement du modele, le contexte courant est copie dans context.json. Settin
 
 Le ZIP du rapport est cree automatiquement dans exports en fin d'observation ou a la fermeture normale. Exporter-rapport.cmd permet de reessayer si l'export echoue. Aucun envoi automatique. Les mises a jour restent automatiques au demarrage ; AutoAimmy-hors-ligne.cmd permet de conserver la version.
 
-La prochaine etape est la reconnaissance visuelle de l'arme, de la lunette et des transitions ADS. Elle reste a developper et valider sur une courte video montrant le HUD. La 0.1.6 n'effectue pas de reentrainement du modele ni de reglage automatique de l'assistance.
+## Lecture en direct — 0.1.8, experimentale
+
+Le lecteur local Windows OCR demarre automatiquement en mode observation, independamment du modele de cibles. Il traite uniquement le coin inferieur droit de la fenetre R6 au premier plan, sur le moniteur selectionne, au maximum une fois par seconde. Les autres applications au premier plan suspendent la lecture ; un mauvais moniteur est signale. Deux lectures consecutives identiques sont necessaires pour afficher un nom d'arme ou un grossissement reconnu par le parseur.
+
+Ces resultats sont du texte reconnu, pas une preuve de l'arme/lunette equipee. Si le HUD montre seulement une icone ou aucun nom, le resultat reste inconnu. La liste de noms pris en charge est limitee. En pause, le dernier texte peut rester visible, avec la date de l'image et la mention qu'il ne s'agit pas d'une detection actuelle. Aucun etat ADS n'est deduit d'un clic droit, du curseur ou des sensibilites sauvegardees.
+
+Le DPI materiel ne figure pas dans une image de jeu. Une integration du logiciel du fabricant est necessaire pour le recuperer automatiquement. La lecture d'icones et des transitions ADS reste a developper et valider sur des images de jeu annotees ; le test OCR valide le moteur sur du texte genere, pas la fiabilite du HUD reel.
+
+Pendant une observation, visual-events.jsonl enregistre la chronologie des resultats et de leur disponibilite. Ce fichier est ajoute au ZIP. Les images et transcriptions OCR completes restent en memoire puis sont eliminees : elles ne sont ni sauvegardees ni envoyees. Aucun reentrainement de modele ni reglage automatique de l'assistance. Windows 10 version 2004 ou Windows 11 est requis ; une langue OCR Windows doit etre disponible.

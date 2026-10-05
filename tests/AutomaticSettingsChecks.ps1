@@ -39,7 +39,12 @@ if ($missing.ImportStatus -ne 'NotFound' -or $null -ne $missing.HorizontalSensit
 $null = New-Item -ItemType Directory -Path (Join-Path $game 'account2') -Force
 Set-Content (Join-Path $game 'account2\GameSettings.ini') $text
 $ambiguous = Sync-AutomaticPlayerProfile $root -SearchDirectories @($game)
-if ($ambiguous.ImportStatus -ne 'AmbiguousAccounts' -or $null -ne $ambiguous.HorizontalSensitivity) { throw 'Guessed active account' }
+if ($ambiguous.ImportStatus -ne 'ImportedCandidate' -or $null -eq $ambiguous.HorizontalSensitivity) { throw 'Multiple accounts did not expose a clearly provisional candidate' }
+$choices = Get-Content (Join-Path $root 'data\settings-candidates.json') -Raw | ConvertFrom-Json
+$selected = Sync-AutomaticPlayerProfile $root -SearchDirectories @($game) -SelectedFileKey $choices[0].Key
+if ($selected.ImportStatus -ne 'Imported' -or $selected.HorizontalSensitivity -ne 7) { throw 'One-click account selection failed' }
+$remembered = Sync-AutomaticPlayerProfile $root -SearchDirectories @($game)
+if ($remembered.ImportStatus -ne 'Imported' -or $remembered.HorizontalSensitivity -ne 7) { throw 'Account selection not remembered' }
 Set-Content $settings ($text.Replace('MouseYawSensitivity=3','MouseYawSensitivity=NaN').Replace('DefaultFOV=90.000000','DefaultFOV=999'))
 $invalid = Sync-AutomaticPlayerProfile $root -SearchDirectories @((Join-Path $game 'account1'))
 if ($null -ne $invalid.HorizontalSensitivity -or $null -ne $invalid.Fov -or $invalid.VerticalSensitivity -ne 3) { throw 'Invalid numbers accepted or valid fields discarded' }

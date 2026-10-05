@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -16,13 +17,14 @@ public partial class AutoAimmyMenuControl : UserControl
     private PlayerSessionContext imported = PlayerSessionContext.Load(ObservationMode.DataDirectory);
     private string? latestReport;
     private bool refreshing;
+    private sealed record SettingsChoice(string Key, string Label);
     public ScrollViewer DashboardScrollViewer => DashboardScroll;
 
     public AutoAimmyMenuControl()
     {
         InitializeComponent();
         timer.Tick += (_, _) => RefreshView();
-        Loaded += (_, _) => { imported = PlayerSessionContext.Load(ObservationMode.DataDirectory); RefreshView(); timer.Start(); };
+        Loaded += (_, _) => { imported = PlayerSessionContext.Load(ObservationMode.DataDirectory); LoadAccountChoices(); RefreshView(); timer.Start(); };
         Unloaded += (_, _) => timer.Stop();
     }
 
@@ -47,6 +49,7 @@ public partial class AutoAimmyMenuControl : UserControl
         var settings = context.Settings;
         string status = settings?.ImportStatus ?? context.Status;
         ImportTitle.Text = context.SettingsSource == "SettingsFile" && status == "Imported" ? "Réglages détectés · Imported" :
+            status == "ImportedCandidate" ? "Réglages proposés — dernier fichier sauvegardé, à vérifier" :
             status == "AmbiguousAccounts" ? "Plusieurs comptes R6 — réglages inconnus" :
             status == "NotFound" ? "Configuration R6 introuvable" : context.SettingsSource == "UserDeclared" && settings != null ?
             "Ancien profil déclaré — relire les réglages" : "Réglages indisponibles · " + status;
@@ -61,6 +64,13 @@ public partial class AutoAimmyMenuControl : UserControl
         UnknownText.Text = "Pas encore détectés : DPI de la souris, arme équipée, lunette équipée et état de visée.";
         RefreshSettingsButton.IsEnabled = !recording && !refreshing;
         if (recording) ActionMessage.Text = "Réglages figés pour cette session. La relecture sera disponible à la fin.";
+        SelectAccountButton.IsEnabled = !recording && !refreshing;
+        AccountChoices.IsEnabled = !recording && !refreshing;
+        var hud = Aimmy2.VisualAnalysis.LiveHudObserver.Instance.Latest;
+        LiveStatusText.Text = hud.Status == "ReadingHUD" ? "Lecture active : HUD de R6, sur ce PC" : hud.Status == "WaitingForGame" ? "En attente / pause : remettre R6 au premier plan" : "Lecture indisponible / démarrage";
+        LiveValuesText.Text = $"Texte arme reconnu : {hud.WeaponText ?? "inconnu"} · texte lunette : {hud.ScopeText ?? "inconnu"} · ADS réel : inconnu" +
+            (hud.FrameUtc.HasValue ? $"\nDernière image lue : {hud.FrameUtc.Value.ToLocalTime():HH:mm:ss}" : "");
+        LiveDetailText.Text = hud.Detail ?? "Lecture locale du HUD, sans enregistrer d’images ni envoyer le jeu à un serveur.";
         try
         {
             latestReport = Directory.Exists(ObservationMode.ExportDirectory) ? new DirectoryInfo(ObservationMode.ExportDirectory)
@@ -74,7 +84,31 @@ public partial class AutoAimmyMenuControl : UserControl
             "Chargez le modèle, vérifiez les cadres sur les bonnes cibles et enregistrez une courte vidéo de votre test contre les IA.";
     }
 
-    private async void RefreshSettings_Click(object sender, RoutedEventArgs e)
+    private void LoadAccountChoices()
+    {
+        try
+        {
+            string path = Path.Combine(ObservationMode.DataDirectory, "settings-candidates.json");
+            var choices = File.Exists(path) && new FileInfo(path).Length < 65536 ?
+                JsonSerializer.Deserialize<SettingsChoice[]>(File.ReadAllText(path), new JsonSerializerOptions { PropertyNameCaseInsensitive=true }) : null;
+            AccountChoices.ItemsSource = choices;
+            AccountChoicePanel.Visibility = choices?.Length > 1 ? Visibility.Visible : Visibility.Collapsed;
+            if (choices?.Length > 0)
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(ObservationMode.DataDirectory,"active-profile.json")));
+                string? key = document.RootElement.TryGetProperty("SettingsFileKey",out var value) ? value.GetString() : null;
+                int selected = Array.FindIndex(choices,c=>c.Key==key);
+                AccountChoices.SelectedIndex = selected >= 0 ? selected : 0;
+            }
+        }
+        catch { AccountChoicePanel.Visibility = Visibility.Collapsed; }
+    }
+    private async void RefreshSettings_Click(object sender, RoutedEventArgs e) => await RefreshSettingsAsync(null);
+    private async void SelectAccount_Click(object sender, RoutedEventArgs e)
+    {
+        if (AccountChoices.SelectedItem is SettingsChoice choice) await RefreshSettingsAsync(choice.Key);
+    }
+    private async Task RefreshSettingsAsync(string? selectedKey)
     {
         if (refreshing || FileManager.AIManager?.Observation?.IsRecording == true) return;
         refreshing = true;
@@ -88,6 +122,11 @@ public partial class AutoAimmyMenuControl : UserControl
             string Quote(string value) => "'" + value.Replace("'", "''") + "'";
             string root = Path.GetFullPath(Path.Combine(ObservationMode.DataDirectory, ".."));
             string script = "$ErrorActionPreference='Stop'; Import-Module " + Quote(module) + " -Force; $null=Sync-AutomaticPlayerProfile -Root " + Quote(root);
+            if (selectedKey != null)
+            {
+                if (!System.Text.RegularExpressions.Regex.IsMatch(selectedKey, "^[a-f0-9]{64}$")) throw new InvalidDataException("Configuration invalide.");
+                script += " -SelectedFileKey " + Quote(selectedKey);
+            }
             var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
             foreach (string argument in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes(script)) }) start.ArgumentList.Add(argument);
             using var process = Process.Start(start) ?? throw new IOException("Impossible de démarrer la lecture des réglages.");
@@ -98,6 +137,7 @@ public partial class AutoAimmyMenuControl : UserControl
             string message = await error;
             if (process.ExitCode != 0) throw new IOException("Relecture échouée : " + message);
             imported = PlayerSessionContext.Load(ObservationMode.DataDirectory);
+            LoadAccountChoices();
             ActionMessage.Text = "Configuration relue. Ces réglages seront utilisés pour la prochaine observation.";
         }
         catch (Exception error) { ActionMessage.Text = error.Message; }

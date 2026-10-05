@@ -36,6 +36,13 @@ jobs:
       - name: Validate automatic game settings import
         shell: powershell
         run: ./tests/AutomaticSettingsChecks.ps1
+      - name: Validate actual local OCR
+        shell: powershell
+        run: |
+          dotnet build tests/VisualOcrChecks/VisualOcrChecks.csproj -c Release -p:Platform=x64 --nologo -v:q
+          if ($LASTEXITCODE -ne 0) { throw 'OCR build failed.' }
+          dotnet tests/VisualOcrChecks/bin/x64/Release/net8.0-windows10.0.19041.0/VisualOcrChecks.dll
+          if ($LASTEXITCODE -ne 0) { throw 'Windows OCR validation failed.' }
       - name: Validate passive Windows observer
         shell: powershell
         run: dotnet run --project tests/WindowsObserverChecks/WindowsObserverChecks.csproj -c Release

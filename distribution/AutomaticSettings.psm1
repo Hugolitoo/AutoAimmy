@@ -2,7 +2,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Sync-AutomaticPlayerProfile {
-    param([string]$Root, [string[]]$SearchDirectories)
+    param([string]$Root, [string[]]$SearchDirectories, [string]$SelectedFileKey)
     if (!$PSBoundParameters.ContainsKey('SearchDirectories')) {
         $SearchDirectories = @(
             (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Rainbow Six - Siege'),
@@ -11,7 +11,7 @@ function Sync-AutomaticPlayerProfile {
     }
     $profile = [ordered]@{ Schema=1; Id='automatic-r6'; Label='Reglages automatiques';
         Source='SettingsFile'; ImportStatus='NotFound'; UpdatedUtc=[DateTime]::UtcNow.ToString('o');
-        SettingsFileLastWriteUtc=$null; Game=$null; Weapon=$null; Dpi=$null;
+        SettingsFileLastWriteUtc=$null; SettingsFileKey=$null; Game=$null; Weapon=$null; Dpi=$null;
         HorizontalSensitivity=$null; VerticalSensitivity=$null; Scope=$null; AdsSensitivity=$null;
         AdsSensitivityByScope=[ordered]@{}; AdsUseSpecific=$null; AdsGlobalSensitivity=$null;
         MouseSensitivityMultiplier=$null; AdsMouseMultiplier=$null;
@@ -26,10 +26,41 @@ function Sync-AutomaticPlayerProfile {
             }
         }
     }) | Sort-Object FullName -Unique
-    if (@($files).Count -gt 1) { $profile.ImportStatus = 'AmbiguousAccounts' }
-    elseif (@($files).Count -eq 1) {
+    $data = Join-Path $Root 'data'
+    $null = New-Item -ItemType Directory -Path $data -Force
+    function File-Key([string]$Path) {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Path.ToLowerInvariant())))).Replace('-','').ToLowerInvariant() }
+        finally { $sha.Dispose() }
+    }
+    $candidates = @(foreach ($candidate in @($files)) {
+        $preview = ''
+        try {
+            if ($candidate.Length -le 262144) {
+                $preview = (([IO.File]::ReadAllLines($candidate.FullName) | Where-Object { $_ -match '^(MouseYawSensitivity|MousePitchSensitivity|DefaultFOV|ResolutionWidth|ResolutionHeight)=\d+(\.\d+)?$' }) -join ' / ')
+            }
+        } catch { $preview = 'fichier inaccessible' }
+        [pscustomobject]@{Key=(File-Key $candidate.FullName); Label=('Configuration du ' + $candidate.LastWriteTime.ToString('g') + ' : ' + $preview)}
+    })
+    ConvertTo-Json -InputObject $candidates -Depth 4 | Set-Content (Join-Path $data 'settings-candidates.json') -Encoding UTF8
+    $selectionPath = Join-Path $data 'settings-selection.json'
+    if (!$SelectedFileKey -and (Test-Path -LiteralPath $selectionPath)) {
+        try { $SelectedFileKey = (Get-Content $selectionPath -Raw | ConvertFrom-Json).Key } catch { }
+    }
+    $selected = @($files | Where-Object { (File-Key $_.FullName) -eq $SelectedFileKey })
+    $provisional = $false
+    if ($selected.Count -eq 1) {
+        @{Key=$SelectedFileKey} | ConvertTo-Json | Set-Content $selectionPath -Encoding UTF8
+        $files = $selected
+    } elseif (@($files).Count -gt 1) {
+        # Display the newest saved configuration as a candidate, never as a verified active account.
+        $files = @($files | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+        $provisional = $true
+    }
+    if (@($files).Count -eq 1) {
         try {
             $file = @($files)[0]
+            $profile.SettingsFileKey = File-Key $file.FullName
             if ($file.Length -gt 262144) { throw 'Settings file too large' }
             $settings = @{}
             $section = ''
@@ -67,7 +98,7 @@ function Sync-AutomaticPlayerProfile {
             $known = @($profile.HorizontalSensitivity,$profile.VerticalSensitivity,$profile.Fov,$profile.Resolution) | Where-Object { $null -ne $_ }
             if (@($known).Count -eq 0) { $profile.ImportStatus = 'UnsupportedSettings' }
             else {
-                $profile.ImportStatus = 'Imported'
+                $profile.ImportStatus = if ($provisional) { 'ImportedCandidate' } else { 'Imported' }
                 $profile.Game = 'Rainbow Six Siege'
                 $profile.SettingsFileLastWriteUtc = $file.LastWriteTimeUtc.ToString('o')
             }

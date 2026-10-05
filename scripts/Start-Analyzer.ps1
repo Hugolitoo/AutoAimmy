@@ -2,7 +2,7 @@ param([switch]$BuildOnly, [switch]$Rebuild, [switch]$CheckOnly)
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$binaryDirectory = Join-Path $projectRoot 'Aimmy2\bin\x64\Release\net8.0-windows'
+$binaryDirectory = Join-Path $projectRoot 'Aimmy2\bin\x64\Release\net8.0-windows10.0.19041.0'
 $applicationExe = Join-Path $binaryDirectory 'YmmiaV2.exe'
 $applicationDll = Join-Path $binaryDirectory 'YmmiaV2.dll'
 $needsBuild = $BuildOnly -or $Rebuild -or !(Test-Path -LiteralPath $applicationExe) -or !(Test-Path -LiteralPath $applicationDll)

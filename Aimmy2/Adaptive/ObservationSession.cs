@@ -147,7 +147,7 @@ internal sealed class ObservationSession : IDisposable
                 if (snapshot != null && now - snapshot.ObservedAt > .15) snapshot = null;
                 recorder.TryRecord(new(now, point.X, point.Y, cursorDx, cursorDy,
                     (GetAsyncKeyState(1) & 0x8000) != 0, snapshot, ++sequence, ObservationMode.Options.AimReference,
-                    reference.X, reference.Y, rawDx, rawDy, MotionBaselineValid: baselineValid));
+                    reference.X, reference.Y, rawDx, rawDy, MotionBaselineValid: baselineValid, Hud: Aimmy2.VisualAnalysis.LiveHudObserver.Instance.Latest));
                 previous = point;
                 previousRawX = rawX; previousRawY = rawY; previousRawAvailable = rawAvailable;
             }

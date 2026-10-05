@@ -44,6 +44,8 @@ public sealed class GameplayRecorder : IAsyncDisposable
             await File.WriteAllTextAsync(Path.Combine(DirectoryPath, "context.json"), JsonSerializer.Serialize(sessionContext, new JsonSerializerOptions { WriteIndented = true }));
         using var events = new StreamWriter(Path.Combine(DirectoryPath, "events.jsonl"), false, System.Text.Encoding.UTF8, 65536);
         using var engagements = new StreamWriter(Path.Combine(DirectoryPath, "engagements.jsonl"), false, System.Text.Encoding.UTF8, 65536);
+        using var visualEvents = new StreamWriter(Path.Combine(DirectoryPath, "visual-events.jsonl"), false, System.Text.Encoding.UTF8, 65536);
+        DateTime? lastVisualRead = null;
         var segmenter = new EngagementSegmenter();
         var extractor = new FeatureExtractor();
         var analyzer = new SessionAnalyzer();
@@ -56,6 +58,11 @@ public sealed class GameplayRecorder : IAsyncDisposable
         await foreach (var value in channel.Reader.ReadAllAsync())
         {
             await events.WriteLineAsync(JsonSerializer.Serialize(value));
+            if (value.Hud != null && value.Hud.ReadUtc != lastVisualRead)
+            {
+                await visualEvents.WriteLineAsync(JsonSerializer.Serialize(new { value.Timestamp, Observation=value.Hud }));
+                lastVisualRead = value.Hud.ReadUtc;
+            }
             segmenter.Push(value);
         }
         segmenter.Finish();
@@ -67,6 +74,7 @@ public sealed class GameplayRecorder : IAsyncDisposable
         // Complete buffered files before creating the local, whitelisted report.
         events.Close();
         engagements.Close();
+        visualEvents.Close();
         if (reportExportDirectory != null)
         {
             string? temporary = null;
@@ -78,7 +86,7 @@ public sealed class GameplayRecorder : IAsyncDisposable
                 if (File.Exists(destination)) destination = Path.Combine(reportExportDirectory, name + "-" + Guid.NewGuid().ToString("N") + ".zip");
                 temporary = Path.Combine(reportExportDirectory, Guid.NewGuid().ToString("N") + ".tmp");
                 using (var archive = ZipFile.Open(temporary, ZipArchiveMode.Create))
-                    foreach (string file in new[] { "analysis.json", "analysis.txt", "quality.json", "engagements.jsonl", "context.json" })
+                    foreach (string file in new[] { "analysis.json", "analysis.txt", "quality.json", "engagements.jsonl", "context.json", "visual-events.jsonl" })
                     {
                         string source = Path.Combine(DirectoryPath, file);
                         if (File.Exists(source)) archive.CreateEntryFromFile(source, file);

@@ -167,7 +167,7 @@ function Export-TestReport {
     $null = New-Item -ItemType Directory -Path $exports -Force
     $destination = Join-Path $exports ('AutoAimmy-report-' + $session.Name + '.zip')
     if (Test-Path -LiteralPath $destination) { $destination = Join-Path $exports ('AutoAimmy-report-' + [guid]::NewGuid().ToString('N') + '.zip') }
-    $files = @('analysis.json', 'analysis.txt', 'quality.json', 'engagements.jsonl', 'context.json') | ForEach-Object { Join-Path $session.FullName $_ } | Where-Object { Test-Path -LiteralPath $_ }
+    $files = @('analysis.json', 'analysis.txt', 'quality.json', 'engagements.jsonl', 'context.json', 'visual-events.jsonl') | ForEach-Object { Join-Path $session.FullName $_ } | Where-Object { Test-Path -LiteralPath $_ }
     Compress-Archive -LiteralPath $files -DestinationPath $destination
     Write-Host "Report exported: $destination"
     Write-Host 'Profil de cette session inclus si disponible. Aucun evenement brut, jeton ou configuration generale. Envoyer ce ZIP manuellement.'

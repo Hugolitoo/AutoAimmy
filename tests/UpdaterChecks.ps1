@@ -80,4 +80,9 @@ try {
     Assert-Check ($zip.Entries.Count -eq 5) 'export selected report files including session context'
     Assert-Check (@($zip.Entries | Where-Object { $_.Name -in @('events.jsonl','github-access.xml') }).Count -eq 0) 'exclude raw events and credentials'
 } finally { $zip.Dispose() }
+Set-Content -LiteralPath (Join-Path $session 'visual-events.jsonl') -Value '{"Source":"LocalWindowsOCR","AdsState":"Unknown"}'
+$visualReport = Export-TestReport $root
+$visualZip = [IO.Compression.ZipFile]::OpenRead($visualReport)
+try { Assert-Check ($visualZip.Entries.Count -eq 6 -and $null -ne $visualZip.GetEntry('visual-events.jsonl')) 'new reports export visual timeline without raw OCR text' }
+finally { $visualZip.Dispose() }
 Write-Host "PASS: $checks updater checks. Fixtures preserved at $fixture"
