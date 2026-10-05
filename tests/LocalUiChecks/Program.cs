@@ -15,9 +15,11 @@ internal static class Program
         string output = Path.GetFullPath(args.FirstOrDefault() ?? Path.Combine(Path.GetTempPath(), "AutoAimmy-ui-" + Guid.NewGuid().ToString("N")));
         Directory.CreateDirectory(output);
         Environment.SetEnvironmentVariable("AUTOAIMMY_DATA_DIR", Path.Combine(output, "test-data"));
-        Environment.SetEnvironmentVariable("AUTOAIMMY_VERSION", "0.2.0-preview");
+        Environment.SetEnvironmentVariable("AUTOAIMMY_VERSION", "0.2.1-preview");
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         var page = new AutoAimmyMenuControl();
+        typeof(AutoAimmyMenuControl).GetField("lastLearningRefresh", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, DateTime.UtcNow);
         typeof(AutoAimmyMenuControl).GetMethod("RefreshView", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
         var host = new Border { Background = new SolidColorBrush(Color.FromRgb(26, 15, 43)), Child = page, Width = 1050, Height = 800 };
         host.Measure(new Size(1050, 800)); host.Arrange(new Rect(0, 0, 1050, 800)); host.UpdateLayout();
@@ -32,6 +34,25 @@ internal static class Program
         if (scroll.ExtentHeight <= scroll.ViewportHeight) throw new Exception("Dashboard should scroll at desktop viewport size.");
         foreach (string button in new[] { "StartLocalButton", "CalibrateLocalButton", "AssistLocalButton", "ReviewLearningButton", "OptimizeLearningButton", "StartTrainingButton" })
             if (page.FindName(button) is not Button) throw new Exception("Missing workflow control: " + button);
+        // Simulate a periodic status read already in flight when a user requests image import.
+        var inspecting = typeof(AutoAimmyMenuControl).GetField("inspecting", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var refresh = typeof(AutoAimmyMenuControl).GetMethod("RefreshLearningAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        inspecting.SetValue(page, true);
+        var import = (Task)refresh.Invoke(page, new object[] { true })!;
+        if (import.IsCompleted) throw new Exception("Explicit image import was skipped during status refresh.");
+        var importWatch = System.Diagnostics.Stopwatch.StartNew();
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
+        timer.Tick += (_, _) =>
+        {
+            if (importWatch.ElapsedMilliseconds >= 80) inspecting.SetValue(page, false);
+            if (import.IsCompleted || importWatch.Elapsed > TimeSpan.FromSeconds(5)) frame.Continue = false;
+        };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+        timer.Stop();
+        if (!import.IsCompleted) throw new Exception("Queued image import did not resume.");
+        import.GetAwaiter().GetResult();
         var assembly = typeof(AutoAimmyMenuControl).Assembly;
         var runtimeType = assembly.GetType("Aimmy2.LocalAutomation.LocalAutomationSession")!;
         var runtime = runtimeType.GetProperty("Instance")!.GetValue(null)!;
@@ -44,7 +65,7 @@ internal static class Program
         var watch = System.Diagnostics.Stopwatch.StartNew();
         runtimeType.GetMethod("Shutdown")!.Invoke(runtime, null);
         if (watch.Elapsed > TimeSpan.FromSeconds(3)) throw new Exception("Idle local shutdown blocked.");
-        Console.WriteLine("PASS: dashboard controls/rendering, default output disarmed, uncalibrated refusal and UI-context shutdown. No game capture or generated input.");
+        Console.WriteLine("PASS: dashboard controls/rendering, queued import, default output disarmed, uncalibrated refusal and UI-context shutdown. No game capture or generated input.");
         Console.WriteLine("UI renders: " + output);
         app.Shutdown();
     }
