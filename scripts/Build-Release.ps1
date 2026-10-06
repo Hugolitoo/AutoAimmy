@@ -14,7 +14,7 @@ $publishDirectory = Join-Path $releaseRoot 'payload'
 $null = New-Item -ItemType Directory -Path $publishDirectory -Force
 Push-Location $projectRoot
 try {
-    foreach ($checks in @('AdaptiveChecks','AdaptiveControlChecks','LocalAutomationChecks','LocalCaptureChecks','ModelLearningChecks')) {
+    foreach ($checks in @('AdaptiveChecks','AdaptiveControlChecks','LocalAutomationChecks','LocalCaptureChecks','ModelLearningChecks','SceneCalibrationChecks')) {
         & $dotnetExe run --project ("tests\$checks\$checks.csproj") -c Release
         if ($LASTEXITCODE -ne 0) { throw "$checks failed." }
     }

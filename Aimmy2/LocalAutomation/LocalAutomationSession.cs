@@ -20,7 +20,7 @@ internal sealed record LocalAutomationState(bool Active, bool Calibrating, bool 
     bool NeedsMeasurement = true);
 
 /// <summary>One local workflow. No network, no game memory, no implicit mouse output on startup.</summary>
-internal sealed class LocalAutomationSession
+internal sealed partial class LocalAutomationSession
 {
     public static LocalAutomationSession Instance { get; } = new();
     private readonly object gate = new();
@@ -29,6 +29,10 @@ internal sealed class LocalAutomationSession
     private GuidedCalibration? calibration;
     private GuidedCalibration? backgroundCalibration;
     private readonly SceneMotionObserver sceneObserver = new();
+    private readonly SceneMotionObserver calibrationSceneObserver = new(320, 180);
+    private CancellationTokenSource? calibrationCaptureStop;
+    private Task calibrationCaptureTask = Task.CompletedTask;
+    private bool fullCalibrationSampler;
     private readonly GameplayEvidenceObserver gameplayEvidence = new();
     private double sceneRawX, sceneRawY, backgroundX = 1000, backgroundY = 1000, lastOutput = -10;
     private int backgroundFits;
@@ -39,6 +43,10 @@ internal sealed class LocalAutomationSession
     private string visionDetail = "Décor : en attente d’images.";
     private bool active, assistance;
     private double calibrationStart, lastSave;
+    private string lastCalibrationDetail = "";
+    private int calibrationFrames, calibrationHeldFrames, calibrationWalkingFrames, calibrationRawMissingFrames, calibrationLateFrames;
+    private int calibrationSceneFrames, calibrationSceneReliableFrames, calibrationSceneMovingFrames;
+    private double calibrationSceneRawTravel;
     private double lastSettingsCheck;
     private Task profileWrite = Task.CompletedTask;
     private double minimumConfidence = .45;
@@ -60,6 +68,8 @@ internal sealed class LocalAutomationSession
     private static bool Key(int key) => (GetAsyncKeyState(key) & 0x8000) != 0;
     internal static bool ActivationHeld => InputLogic.InputBindingManager.IsHoldingBinding("Aim Keybind") ||
         InputLogic.InputBindingManager.IsHoldingBinding("Second Aim Keybind");
+    internal static CalibrationInput ReadCalibrationInput() => new(ActivationHeld, Key(1),
+        Key(0x57) || Key(0x41) || Key(0x53) || Key(0x44) || Key(0x20) || Key(0x51) || Key(0x45), Key(2));
     private LocalAutomationSession() => _ = Task.Run(WatchEmergencyAsync);
     private async Task WatchEmergencyAsync()
     {
@@ -82,8 +92,7 @@ internal sealed class LocalAutomationSession
                     // No-frame/black-screen/focus pauses must not leave the UI calibrating forever.
                     if (calibration != null && clock.Elapsed.TotalSeconds - calibrationStart > 45)
                     {
-                        calibration = null; engine.Reset(); ResetSceneCalibration();
-                        message = "Calibration terminée sans assez de mesures. Revenez sur R6, puis recommencez sans tirer ni déplacer le personnage.";
+                        FinishCalibrationFailure();
                         Publish();
                     }
                 }
@@ -168,6 +177,7 @@ internal sealed class LocalAutomationSession
             global::Other.FileManager.AIManager?.Observation?.Dispose();
             LocalCaptureService.Instance.Start(ObservationMode.DataDirectory, PlayerSessionContext.Load(ObservationMode.DataDirectory));
             active = true;
+            StartCalibrationCapture();
             assistance = false;
             requestedAssistance = false;
             rawBaseline = false;
@@ -181,6 +191,7 @@ internal sealed class LocalAutomationSession
         lock (gate)
         {
             active = assistance = false;
+            calibrationCaptureStop?.Cancel();
             requestedAssistance = false;
             calibration = null;
             engine.Reset();
@@ -190,6 +201,7 @@ internal sealed class LocalAutomationSession
             Publish();
         }
         await profileWrite.ConfigureAwait(false);
+        await calibrationCaptureTask.ConfigureAwait(false);
         await LocalCaptureService.Instance.StopAsync().ConfigureAwait(false);
     }
 
@@ -202,10 +214,14 @@ internal sealed class LocalAutomationSession
             requestedAssistance = false;
             engine.Reset();
             viewNeedsMeasurement = true;
+            ResetSceneCalibration();
             calibration = new GuidedCalibration(contextKey, DisplayManager.ScreenHeight);
             calibrationStart = clock.Elapsed.TotalSeconds + 5;
             rawBaseline = false;
-            message = "Dans 5 s : cible immobile, restez sur place, sans tirer. Maintenez votre touche de visée et faites de petits mouvements gauche/droite puis haut/bas, dans les deux sens.";
+            lastCalibrationDetail = "";
+            calibrationFrames = calibrationHeldFrames = calibrationWalkingFrames = calibrationRawMissingFrames = calibrationLateFrames = 0;
+            calibrationSceneFrames = calibrationSceneReliableFrames = calibrationSceneMovingFrames = 0; calibrationSceneRawTravel = 0;
+            message = "Dans 5 s : même vue, sans marcher ni tirer. Maintenez la touche de visée. Balayez lentement gauche/droite pendant 15 s, puis haut/bas pendant 15 s ; gardez le décor visible et la cible immobile.";
             Publish();
         }
     }
@@ -255,14 +271,33 @@ internal sealed class LocalAutomationSession
     }
 
     public Prediction? ProcessFrame(Bitmap frame, Rectangle bounds, IReadOnlyList<Prediction> predictions,
-        DateTime capturedUtc, double capturedSeconds, R6ForegroundSnapshot foreground, long rawX, long rawY, bool rawAvailable)
+        DateTime capturedUtc, double capturedSeconds, R6ForegroundSnapshot foreground, long rawX, long rawY, bool rawAvailable,
+        CalibrationInput? capturedInput = null)
     {
         lock (gate)
         {
             if (!active) return null;
             if (!R6ForegroundGuard.StillMatches(foreground)) { PauseFrame("En pause : R6 doit rester au premier plan."); return null; }
             double now = capturedSeconds;
-            if (clock.Elapsed.TotalSeconds - now > .15) { PauseFrame("Images trop anciennes pour corriger la visée. Réduisez la charge du PC."); return null; }
+            double age = clock.Elapsed.TotalSeconds - now;
+            bool freshForOutput = age <= .15;
+            if (calibration != null)
+            {
+                calibrationFrames++;
+                if (capturedInput?.ActivationHeld == true) calibrationHeldFrames++;
+                if (capturedInput?.Walking == true) calibrationWalkingFrames++;
+                if (!rawAvailable) calibrationRawMissingFrames++;
+                if (!freshForOutput) calibrationLateFrames++;
+            }
+            // Passive matched image/input measurements have a separate bound. Live mouse
+            // output retains its original 150 ms cutoff below and in the final output guard.
+            if (age > GuidedCalibration.MaximumObservationGapSeconds)
+            {
+                if (fullCalibrationSampler)
+                { assistance = false; engine.Reset(); rawBaseline = false; message = "Détection lente : calibration sur le décor en cours, assistance suspendue."; Publish(); }
+                else PauseFrame("Images trop anciennes pour mesurer la caméra. Réduisez la charge du PC.");
+                return null;
+            }
             if (now - lastSettingsCheck >= 1)
             {
                 lastSettingsCheck = now;
@@ -278,6 +313,7 @@ internal sealed class LocalAutomationSession
             previousRawX = rawX; previousRawY = rawY;
             rawBaseline = rawAvailable;
             bool held = ActivationHeld;
+            var measuredInput = capturedInput ?? ReadCalibrationInput();
             if (Key(0x77)) { assistance = requestedAssistance = false; message = "Assistance arrêtée avec F8."; }
             var detections = predictions.Select((p, i) => new DetectionSample(i, p.ScreenCenterX, p.ScreenCenterY,
                 p.Rectangle.Width, p.Rectangle.Height, p.Confidence, p.ClassId)).ToArray();
@@ -288,7 +324,7 @@ internal sealed class LocalAutomationSession
             visionDetail = scene.Reliable ? $"Décor suivi : {scene.Confidence:P0} · caméra {scene.X:0.0}/{scene.Y:0.0} px · échelle {scene.Scale:0.000}." : "Décor insuffisant : mouvement des cibles non séparé de la caméra.";
             if (sceneObserver.Updated)
             {
-                bool walking = Key(0x57) || Key(0x41) || Key(0x53) || Key(0x44) || Key(0x20) || Key(0x51) || Key(0x45);
+                bool walking = measuredInput.Walking;
                 gameplayEvidence.Observe(capturedUtc, scene, sceneRawY, engine.Calibration,
                     rawAvailable && held && calibration == null && now - lastOutput > .25,
                     walking, Key(1), DisplayManager.ScreenHeight, sceneObserver.Interval);
@@ -297,7 +333,8 @@ internal sealed class LocalAutomationSession
                     assistance = false; viewNeedsMeasurement = true; engine.Reset(); backgroundCalibration = null; backgroundFits = 0;
                     message = "Changement de vue probable : assistance suspendue pendant la mesure de la nouvelle réponse.";
                 }
-                if (scene.Reliable && Math.Abs(scene.Scale - 1) < .02 && rawAvailable && held && !Key(1) && !walking && now - lastOutput > .25)
+                if (!fullCalibrationSampler && (calibration == null || now >= calibrationStart) && scene.Reliable && Math.Abs(scene.Scale - 1) < .02 &&
+                    rawAvailable && measuredInput.ActivationHeld && !measuredInput.Firing && !walking && now - lastOutput > .25)
                 {
                     backgroundCalibration ??= new GuidedCalibration(contextKey, DisplayManager.ScreenHeight);
                     backgroundX += scene.X; backgroundY += scene.Y;
@@ -309,9 +346,11 @@ internal sealed class LocalAutomationSession
                             Math.Abs(fit.PixelsPerCountY / lastBackgroundFit.PixelsPerCountY - 1) < .15;
                         backgroundFits = agrees ? backgroundFits + 1 : 1;
                         lastBackgroundFit = fit;
+                        var completedProgress = backgroundCalibration.Progress;
                         backgroundCalibration = null;
                         if (calibration != null || backgroundFits >= 2)
                         {
+                            if (calibration != null) RecordCalibrationAttempt("Accepted", completedProgress, "Décor");
                             ApplyCameraResponse(fit);
                             calibration = null;
                             assistance = requestedAssistance;
@@ -319,13 +358,13 @@ internal sealed class LocalAutomationSession
                         }
                     }
                 }
-                else backgroundCalibration?.BreakInterval();
+                else if (!fullCalibrationSampler) backgroundCalibration?.BreakInterval();
                 sceneRawX = sceneRawY = 0;
             }
             double interval = sceneObserver.Interval;
             var decision = engine.Update(new AdaptiveFrame(now, DisplayManager.ScreenLeft + DisplayManager.ScreenWidth / 2.0,
                 DisplayManager.ScreenTop + DisplayManager.ScreenHeight / 2.0, DisplayManager.ScreenHeight, detections,
-                held, assistance && !viewNeedsMeasurement && calibration == null && rawAvailable, contextKey,
+                held, freshForOutput && assistance && !viewNeedsMeasurement && calibration == null && rawAvailable, contextKey,
                 scene.Reliable && interval > 0 ? scene.X / interval : 0,
                 scene.Reliable && interval > 0 ? scene.Y / interval : 0, scene.Reliable,
                 gameplayEvidence.RecoilPixelsPerSecond(capturedUtc, DisplayManager.ScreenHeight, Key(1))));
@@ -336,31 +375,37 @@ internal sealed class LocalAutomationSession
                 if (now < calibrationStart) message = $"Calibration dans {Math.Ceiling(calibrationStart - now):0} s. Placez-vous devant une cible immobile.";
                 else if (now - calibrationStart > 45)
                 {
-                    message = "Calibration insuffisante. Recommencez sur une cible immobile, dans la même vue, sans déplacer le personnage ni tirer.";
-                    calibration = null;
+                    FinishCalibrationFailure();
                 }
-                else if (held && !Key(1) && rawAvailable && decision.Target is { } target)
+                else if (fullCalibrationSampler)
+                    message = backgroundCalibration != null ? CalibrationProgressMessage() :
+                        "Calibration : gardez le décor visible autour de l’arme. Maintenez la touche de visée, sans tirer ni marcher.";
+                else if (measuredInput.ActivationHeld && !measuredInput.Firing && !measuredInput.Walking && rawAvailable && decision.Target is { } target)
                 {
                     var result = calibration.Observe(new CalibrationObservation(now, target.Id, target.Detection.X,
                         target.Detection.Y, dx, dy, true, false, target.Detection.Height));
                     if (result.IsUsable)
                     {
+                        RecordCalibrationAttempt("Accepted", calibration.Progress, "Cible");
                         ApplyCameraResponse(result);
                         calibration = null;
                         SaveProfile();
                         message = "Calibration enregistrée pour cette vue. Revenez dans AUTO pour activer l’assistance expérimentale.";
                     }
-                    else message = $"Calibration : horizontal {calibration.SamplesX}/12 · vertical {calibration.SamplesY}/12. Petits mouvements dans les deux sens, sans tirer ni marcher.";
+                    else message = CalibrationProgressMessage();
                 }
                 else
                 {
                     calibration.BreakInterval();
-                    message = !rawAvailable ? "Souris brute indisponible : calibration suspendue." : "Gardez une cible immobile détectée, maintenez la touche de visée, sans tirer.";
+                    message = !rawAvailable ? "Souris brute indisponible : calibration suspendue." : measuredInput.Walking ?
+                        "Restez sur place : les mouvements du personnage ne servent pas à la calibration." :
+                        backgroundCalibration != null ? CalibrationProgressMessage() : "Gardez le décor visible, maintenez la touche de visée, sans tirer ni marcher.";
                 }
             }
             else if (assistance)
             {
-                message = "Assistance : " + TranslateStatus(decision.Status) + ". F8 pour arrêter.";
+                message = freshForOutput ? "Assistance : " + TranslateStatus(decision.Status) + ". F8 pour arrêter." :
+                    "Assistance en pause : calcul trop lent pour corriger cette image. F8 pour arrêter.";
                 if (decision.HasCorrection && held && clock.Elapsed.TotalSeconds - now <= .15 && R6ForegroundGuard.StillMatches(foreground) && !Key(0x77))
                 {
                     if (!LocalMouseOutput.TryMove(decision.CountsX, decision.CountsY, foreground, out string? error))
@@ -373,7 +418,7 @@ internal sealed class LocalAutomationSession
             }
             if (now - lastSave >= 15) { SaveProfile(); lastSave = now; }
             LocalCaptureService.Instance.PublishInput(new LocalInputSample(capturedUtc, rawAvailable ? dx : null,
-                rawAvailable ? dy : null, Key(1), Key(2), assistance,
+                rawAvailable ? dy : null, measuredInput.Firing, measuredInput.RightHeld, assistance,
                 sceneObserver.Updated && scene.Reliable ? scene.X : null, sceneObserver.Updated && scene.Reliable ? scene.Y : null,
                 scene.Reliable ? scene.Confidence : null, scene.Reliable ? scene.Scale : null,
                 sceneObserver.Updated && scene.Reliable ? interval : null, generatedX, generatedY, generatedUtc));
@@ -386,11 +431,82 @@ internal sealed class LocalAutomationSession
     }
 
     public string VisionDetail => visionDetail;
+    public string CalibrationDetail => Volatile.Read(ref lastCalibrationDetail);
     public string GameplayDetail { get { lock (gate) return gameplayEvidence.Detail; } }
     public long EstimatedShots { get { lock (gate) return gameplayEvidence.EstimatedShots; } }
+    private (CalibrationProgress? Progress, string Source) BestCalibrationProgress()
+    {
+        var target = calibration?.Progress;
+        var scene = backgroundCalibration?.Progress;
+        double Score(CalibrationProgress p) => (p.X.Complete ? 10000 : 0) + (p.Y.Complete ? 10000 : 0) +
+            p.X.CleanSamples + p.Y.CleanSamples + 20 * (p.X.Fit + p.Y.Fit);
+        return scene != null && (target == null || Score(scene) > Score(target)) ? (scene, "Décor") : (target, "Cible");
+    }
+    private static string AxisCalibrationMessage(CalibrationAxisProgress axis, bool horizontal)
+    {
+        string directions = horizontal ? "gauche/droite" : "haut/bas";
+        return axis.MissingReason switch
+        {
+            "Ready" => "mesures cohérentes",
+            "SamplesRequired" => $"continuez lentement {directions}, avec des balayages un peu plus amples",
+            "BothDirectionsRequired" => $"il manque un sens : balayez {directions} dans les deux sens",
+            "MoreMovementRequired" => "amplitude totale trop faible : faites des balayages un peu plus amples",
+            "TooManyOutliers" => "trop de mesures incohérentes : gardez la même vue et une cible immobile",
+            "InconsistentMotion" => axis.RelativeSpread > .25 ? $"dispersion {axis.RelativeSpread:P0} (maximum 25 %) : mouvement mesuré irrégulier" :
+                $"accord image/souris {axis.Fit:P0} (minimum 88 %) : mesure instable",
+            "InvalidGain" => "réponse de caméra hors plage : mesure à vérifier",
+            _ => "mesure en attente"
+        };
+    }
+    private string CalibrationProgressMessage()
+    {
+        var (progress, source) = BestCalibrationProgress();
+        return progress == null ? "Calibration : en attente d’images et de mouvements." :
+            $"Calibration ({source.ToLowerInvariant()}) · H {Math.Min(12, progress.X.CleanSamples)}/12 · V {Math.Min(12, progress.Y.CleanSamples)}/12.\n" +
+            "Horizontal : " + AxisCalibrationMessage(progress.X, true) + ".\nVertical : " + AxisCalibrationMessage(progress.Y, false) + ".";
+    }
+    private void FinishCalibrationFailure()
+    {
+        var (progress, source) = BestCalibrationProgress();
+        RecordCalibrationAttempt("Rejected", progress, source);
+        calibration = null; engine.Reset(); ResetSceneCalibration();
+        message = lastCalibrationDetail;
+    }
+    private void RecordCalibrationAttempt(string outcome, CalibrationProgress? progress, string source)
+    {
+        string detail = outcome == "Accepted" ? "Dernier essai : calibration validée sur " + source.ToLowerInvariant() + "." :
+            calibrationFrames == 0 ? "Dernier essai : aucune image reçue. Vérifiez R6 au premier plan et le moniteur sélectionné." :
+            calibrationRawMissingFrames == calibrationFrames ? "Dernier essai : souris brute indisponible." :
+            calibrationHeldFrames == 0 ? "Dernier essai : touche d’activation Aimmy non maintenue. Vérifiez Aim Keybind." :
+            calibrationSceneFrames > 0 && calibrationSceneReliableFrames == 0 ?
+                "Dernier essai : le décor autour de l’arme n’a pas pu être suivi. Balayez plus lentement devant un décor texturé, dans la même vue." :
+            calibrationSceneFrames > 0 && calibrationSceneMovingFrames == 0 && calibrationSceneRawTravel >= 160 ?
+                "Dernier essai : mouvements de souris reçus, mais aucun déplacement exploitable du décor. Gardez R6 au premier plan et faites des balayages lents un peu plus amples." :
+            progress == null ? "Dernier essai : aucune mesure exploitable. Gardez le décor visible, sans tirer ni marcher." :
+            "Dernier essai non validé (" + source.ToLowerInvariant() + "). Horizontal : " + AxisCalibrationMessage(progress.X, true) +
+                ". Vertical : " + AxisCalibrationMessage(progress.Y, false) + ".";
+        lastCalibrationDetail = detail;
+        try
+        {
+            string directory = Path.Combine(ObservationMode.DataDirectory, "local-profiles", "calibration-diagnostics");
+            Directory.CreateDirectory(directory);
+            string name = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8] + ".json";
+            File.WriteAllText(Path.Combine(directory, name), JsonSerializer.Serialize(new { Schema = 1, Utc = DateTime.UtcNow,
+                Outcome = outcome, Source = source, Detail = detail, Progress = progress,
+                Frames = calibrationFrames, ActivationHeldFrames = calibrationHeldFrames, WalkingFrames = calibrationWalkingFrames,
+                RawUnavailableFrames = calibrationRawMissingFrames, FramesTooOldForOutput = calibrationLateFrames,
+                WideSceneFrames = calibrationSceneFrames, ReliableWideSceneFrames = calibrationSceneReliableFrames,
+                MovingWideSceneFrames = calibrationSceneMovingFrames, WideSceneRawTravel = calibrationSceneRawTravel,
+                CalibrationRegion = "WideGameOutsideWeaponAndHUD",
+                MouseOutputFreshnessMilliseconds = 150 }, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { lastCalibrationDetail += " Diagnostic non sauvegardé : " + error.Message; }
+    }
     private void ResetSceneCalibration()
     {
         sceneObserver.Reset(); backgroundCalibration = null; sceneRawX = sceneRawY = 0;
+        calibrationSceneObserver.Reset();
         backgroundX = backgroundY = 1000; backgroundFits = 0; lastBackgroundFit = null;
         gameplayEvidence.BreakInterval();
     }

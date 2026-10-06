@@ -161,6 +161,7 @@ public partial class AutoAimmyMenuControl
         var session = LocalAutomationSession.Instance.State;
         var capture = LocalCaptureService.Instance.State;
         LocalStatusText.Text = session.Message;
+        CalibrationDiagnosticText.Text = LocalAutomationSession.Instance.CalibrationDetail;
         LocalProfileText.Text = $"Calibration : {(session.Calibrated ? session.NeedsMeasurement ? "enregistrée · vue actuelle à mesurer" : "validée dans la vue actuelle" : "nécessaire")} · {session.ProfileCount} sous-profils\n" +
             "Contexte : " + session.Context.Replace("Small", "petite cible").Replace("Medium", "cible moyenne").Replace("Large", "grande cible")
                 .Replace("Slow", "mouvement lent").Replace("Moving", "mouvement modéré").Replace("Fast", "mouvement rapide") +

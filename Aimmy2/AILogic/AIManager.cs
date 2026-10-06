@@ -1057,6 +1057,7 @@ namespace Aimmy2.AILogic
             double capturedSeconds = LocalAutomationSession.Instance.Timestamp;
             long rawX = 0, rawY = 0;
             bool rawAvailable = localActive && RawMouseObserver.Shared.TryRead(out rawX, out rawY, out _);
+            CalibrationInput? calibrationInput = localActive ? LocalAutomationSession.ReadCalibrationInput() : null;
 
             IDisposableReadOnlyCollection<DisposableNamedOnnxValue>? results = null;
             Tensor<float>? outputTensor = null;
@@ -1144,7 +1145,7 @@ namespace Aimmy2.AILogic
                     }
                     _observation?.UpdateTargets(KDPredictions);
                     return LocalAutomationSession.Instance.ProcessFrame(frame, detectionBox, KDPredictions,
-                        capturedUtc, capturedSeconds, foreground, rawX, rawY, rawAvailable);
+                        capturedUtc, capturedSeconds, foreground, rawX, rawY, rawAvailable, calibrationInput);
                 }
                 if (ObservationMode.BlocksOutput && !_benchmarkMode)
                 {

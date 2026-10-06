@@ -47,7 +47,7 @@ Check(tracker.Update(.18, competitors, 960, 540)!.Id == first.Id, "two competito
 Check(tracker.Update(.20, competitors, 960, 540)!.Id != first.Id, "three clearly better frames can switch after dwell");
 Check(tracker.Update(.21, new[] { Box(0, x: 5000) }, 960, 540) == null, "out-of-range detections do not generate a target");
 
-CalibrationResult Calibrate(bool noisy = false, bool oneDirection = false, double yGain = -3)
+CalibrationResult Calibrate(bool noisy = false, bool oneDirection = false, double yGain = -3, double interval = .11)
 {
     var session = new GuidedCalibration("held:settings-a", 1080);
     double t = 0, x = 1000, y = 540;
@@ -55,7 +55,7 @@ CalibrationResult Calibrate(bool noisy = false, bool oneDirection = false, doubl
     for (int axis = 0; axis < 2; axis++)
         for (int i = 0; i < 36; i++)
         {
-            t += .11;
+            t += interval;
             double count = oneDirection || i % 6 < 3 ? 10 : -10;
             double pixels = count * (axis == 0 ? -2 : yGain);
             if (noisy && i % 2 == 0) pixels *= -.7;
@@ -73,6 +73,115 @@ Check(measured.FitX > .99 && measured.SamplesX >= 12 && measured.SamplesY >= 12,
 Check(!Calibrate(oneDirection: true).IsUsable, "one-direction motion is insufficient calibration evidence");
 Check(!Calibrate(noisy: true).IsUsable, "inconsistent moving target cannot pass the calibration fit");
 Check(Calibrate(yGain: 3).IsUsable, "inverted vertical response is calibrated instead of assumed");
+Check(Calibrate(interval: .3).IsUsable,
+    "matched passive measurements at 300 ms intervals can calibrate without changing live correction bounds");
+
+GuidedCalibration CalibrateSmallMovements(double interval, bool noisy = false, double xGain = -2, double yGain = -3)
+{
+    var session = new GuidedCalibration("held:settings-a", 1080);
+    double time = 0, x = 1000, y = 540;
+    var random = new Random(31);
+    session.Observe(new(time, 1, x, y, 0, 0, true, TargetHeight: 120));
+    for (int axis = 0; axis < 2; axis++)
+        for (int sweep = 0; sweep < 8; sweep++)
+            for (int step = 0; step < 24; step++)
+            {
+                double raw = sweep % 2 == 0 ? 1 : -1;
+                if (axis == 0) x += raw * xGain; else y += raw * yGain;
+                double jitter = noisy ? (random.NextDouble() - .5) * 30 : 0;
+                session.Observe(new(time += interval, 1, x + (axis == 0 ? jitter : 0),
+                    y + (axis == 1 ? jitter : 0), axis == 0 ? raw : 0, axis == 1 ? raw : 0,
+                    true, TargetHeight: 120));
+            }
+    return session;
+}
+foreach (double interval in new[] { .05, .10, .12 })
+{
+    var small = CalibrateSmallMovements(interval);
+    var result = small.Evaluate();
+    Check(result.IsUsable && Near(result.PixelsPerCountX, -2) && Near(result.PixelsPerCountY, -3),
+        $"one-count slow movements accumulate reliable bidirectional evidence at {interval * 1000:0} ms intervals");
+    Check(small.Progress.X.CleanSamples >= 12 && small.Progress.Y.CleanSamples >= 12 &&
+        small.Progress.X.PositiveSamples >= 3 && small.Progress.X.NegativeSamples >= 3 &&
+        small.Progress.Y.PositiveSamples >= 3 && small.Progress.Y.NegativeSamples >= 3 &&
+        small.Progress.X.TotalCounts >= 160 && small.Progress.Y.TotalCounts >= 160,
+        "small movements retain every original sample, direction and total-movement requirement");
+}
+Check(!CalibrateSmallMovements(.05, noisy: true).Evaluate().IsUsable,
+    "accumulating small movements cannot turn noisy independent target motion into a usable fit");
+var subpixelCalibration = CalibrateSmallMovements(.05, xGain: -.4, yGain: .5);
+Check(subpixelCalibration.Evaluate().IsUsable && Near(subpixelCalibration.Progress.X.PixelsPerCount, -.4) &&
+    Near(subpixelCalibration.Progress.Y.PixelsPerCount, .5),
+    "subpixel per-frame movement accumulates a measurable two-pixel signal without weakening fit or spread requirements");
+var signalCalibration = new GuidedCalibration("held:settings-a", 1080);
+signalCalibration.Observe(new(0, 1, 1000, 540, 0, 0, true));
+signalCalibration.Observe(new(.1, 1, 999, 540, 4, 0, true));
+Check(signalCalibration.SamplesX == 0, "one-pixel motion is held for more signal even when the raw count minimum is satisfied");
+signalCalibration.Observe(new(.2, 1, 998, 540, 4, 0, true));
+Check(signalCalibration.Progress.X.Samples == 1 && Near(signalCalibration.Progress.X.TotalCounts, 8) &&
+    Near(signalCalibration.Progress.X.PixelsPerCount, -.25), "longer windows retain the matched counts while reaching two pixels of evidence");
+
+var reversalCalibration = new GuidedCalibration("held:settings-a", 1080);
+double reversalTime = 0, reversalX = 1000;
+reversalCalibration.Observe(new(0, 1, reversalX, 540, 0, 0, true));
+foreach (double raw in new[] { 2.0, 1, -1, -1, -1, -1 })
+{
+    reversalX -= raw * 2;
+    reversalCalibration.Observe(new(reversalTime += .05, 1, reversalX, 540, raw, 0, true));
+}
+Check(reversalCalibration.Progress.X.Samples == 1 && reversalCalibration.Progress.X.NegativeSamples == 1 &&
+    Near(reversalCalibration.Progress.X.TotalCounts, 4) && Near(reversalCalibration.Progress.X.PixelsPerCount, -2),
+    "a reversal discards an insufficient outgoing segment and measures the incoming direction without cancelled counts");
+var jitterCalibration = new GuidedCalibration("held:settings-a", 1080);
+double jitterX = 1000;
+jitterCalibration.Observe(new(0, 1, jitterX, 540, 0, 0, true));
+for (int frame = 1; frame <= 120; frame++)
+{
+    double raw = frame % 2 == 0 ? 1 : -1;
+    jitterX -= raw * 2;
+    jitterCalibration.Observe(new(frame * .05, 1, jitterX, 540, raw, 0, true));
+}
+Check(jitterCalibration.SamplesX == 0 && !jitterCalibration.Evaluate().IsUsable,
+    "rapid sub-threshold reversals never merge into apparent movement evidence");
+
+var sparseCalibration = new GuidedCalibration("held:settings-a", 1080);
+sparseCalibration.Observe(new(0, 1, 1000, 540, 0, 0, true));
+for (int frame = 1; frame <= 20; frame++)
+    sparseCalibration.Observe(new(frame * .25, 1, 1000 - frame * 2, 540, 1, 0, true));
+Check(sparseCalibration.SamplesX == 0,
+    "insufficient movement is never accumulated beyond the bounded calibration window");
+var gapCalibration = new GuidedCalibration("held:settings-a", 1080);
+gapCalibration.Observe(new(0, 1, 1000, 540, 0, 0, true));
+gapCalibration.Observe(new(.1, 1, 998, 540, 1, 0, true));
+gapCalibration.Observe(new(.7, 1, 960, 540, 19, 0, true));
+Check(gapCalibration.SamplesX == 0, "a gap over 500 ms breaks passive calibration without measuring unseen motion");
+gapCalibration.Observe(new(.8, 1, 956, 540, 2, 0, true));
+gapCalibration.Observe(new(.9, 1, 952, 540, 2, 0, true));
+Check(gapCalibration.Progress.X.Samples == 1 && Near(gapCalibration.Progress.X.TotalCounts, 4) &&
+    Near(gapCalibration.Progress.X.PixelsPerCount, -2), "calibration resumes after a long gap with only the new matched displacement");
+
+var progressCalibration = new GuidedCalibration("held:settings-a", 1080);
+double progressTime = 0, progressX = 1000;
+progressCalibration.Observe(new(0, 1, progressX, 540, 0, 0, true));
+for (int sample = 0; sample < 12; sample++)
+{
+    double raw = sample < 6 ? 4 : -4;
+    progressX -= raw * 2;
+    progressCalibration.Observe(new(progressTime += .11, 1, progressX, 540, raw, 0, true));
+}
+Check(progressCalibration.Progress.X.CleanSamples == 12 && progressCalibration.Progress.X.PositiveSamples == 6 &&
+    progressCalibration.Progress.X.NegativeSamples == 6 && Near(progressCalibration.Progress.X.TotalCounts, 48) &&
+    progressCalibration.Progress.X.MissingReason == "MoreMovementRequired" && !progressCalibration.Progress.X.Complete &&
+    progressCalibration.Progress.Y.MissingReason == "SamplesRequired",
+    "structured progress explains why twelve clean samples alone do not complete an axis");
+var oneDirectionProgress = new GuidedCalibration("held:settings-a", 1080);
+oneDirectionProgress.Observe(new(0, 1, 1000, 540, 0, 0, true));
+for (int sample = 1; sample <= 20; sample++)
+    oneDirectionProgress.Observe(new(sample * .11, 1, 1000 - sample * 20, 540, 10, 0, true));
+Check(oneDirectionProgress.Progress.X.MissingReason == "BothDirectionsRequired" &&
+    oneDirectionProgress.Progress.X.NegativeSamples == 0 && !oneDirectionProgress.Progress.X.Complete,
+    "progress identifies a missing direction even with enough samples and movement");
+
 var sessionOutput = new GuidedCalibration("held:settings-a", 1080);
 sessionOutput.Observe(new(0, 1, 1000, 540, 0, 0, true));
 sessionOutput.Observe(new(.1, 1, 980, 540, 10, 0, true, true));

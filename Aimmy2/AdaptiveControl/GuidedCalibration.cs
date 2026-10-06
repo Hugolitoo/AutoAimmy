@@ -4,6 +4,12 @@ public sealed record CalibrationObservation(double TimeSeconds, long TrackId, do
     double RawDeltaX, double RawDeltaY, bool StationaryTargetConfirmed, bool OutputWasActive = false,
     double TargetHeight = 0);
 
+public sealed record CalibrationAxisProgress(int Samples, int CleanSamples, int PositiveSamples, int NegativeSamples,
+    double TotalCounts, double PixelsPerCount, double Fit, double RelativeSpread, string MissingReason, bool Complete);
+
+public sealed record CalibrationProgress(CalibrationAxisProgress X, CalibrationAxisProgress Y,
+    double DurationSeconds, string Status, bool Complete);
+
 public sealed record CalibrationResult
 {
     public bool Success { get; init; }
@@ -39,6 +45,8 @@ public sealed record CalibrationResult
 /// </summary>
 public sealed class GuidedCalibration
 {
+    public const double MaximumObservationGapSeconds = .5;
+    private const double MinimumWindowSeconds = .10, MaximumWindowSeconds = .60, MinimumDisplacementPixels = 2;
     private sealed record Pair(double Counts, double Pixels);
     private readonly List<Pair> xPairs = new(), yPairs = new();
     private readonly string contextKey;
@@ -58,7 +66,22 @@ public sealed class GuidedCalibration
 
     public int SamplesX => xPairs.Count;
     public int SamplesY => yPairs.Count;
-    public string Status => Evaluate().Status;
+    public string Status => Progress.Status;
+    public CalibrationProgress Progress
+    {
+        get
+        {
+            var x = Fit(xPairs);
+            var y = Fit(yPairs);
+            double duration = double.IsNaN(start) || double.IsNaN(last) ? 0 : Math.Max(0, last - start);
+            bool success = x.Complete && y.Complete && duration >= 2;
+            string status = success ? "CalibratedForCurrentView" :
+                x.Complete && y.Complete ? "MoreObservationTimeRequired" :
+                xPairs.Count >= 12 && yPairs.Count >= 12 && lastIssue == "MoveHorizontallyThenVerticallyBothDirections" ?
+                    "InconsistentMotionRetryOnStationaryTarget" : lastIssue;
+            return new(x, y, duration, status, success);
+        }
+    }
 
     public CalibrationResult Observe(CalibrationObservation observation)
     {
@@ -71,7 +94,7 @@ public sealed class GuidedCalibration
         if (double.IsNaN(start)) start = observation.TimeSeconds;
         last = observation.TimeSeconds;
         if (previous == null || anchor == null || observation.TrackId != previous.TrackId ||
-            observation.TimeSeconds <= previous.TimeSeconds || observation.TimeSeconds - previous.TimeSeconds > .15 ||
+            observation.TimeSeconds <= previous.TimeSeconds || observation.TimeSeconds - previous.TimeSeconds > MaximumObservationGapSeconds ||
             (previous.TargetHeight > 0 && observation.TargetHeight > 0 &&
                 Math.Abs(observation.TargetHeight / previous.TargetHeight - 1) > .12))
         {
@@ -80,28 +103,53 @@ public sealed class GuidedCalibration
             lastIssue = "TargetMustStayVisibleAndSameSize";
             return Evaluate();
         }
+
+        int accumulatedAxis = DominantAxis(accumulatedX, accumulatedY);
+        int observationAxis = DominantAxis(observation.RawDeltaX, observation.RawDeltaY);
+        bool directionChanged =
+            Reverses(accumulatedX, observation.RawDeltaX) && (accumulatedAxis == 1 || observationAxis == 1) ||
+            Reverses(accumulatedY, observation.RawDeltaY) && (accumulatedAxis == 2 || observationAxis == 2) ||
+            accumulatedAxis != 0 && observationAxis != 0 && accumulatedAxis != observationAxis;
+        if (directionChanged || observation.TimeSeconds - anchor.TimeSeconds > MaximumWindowSeconds + 1e-9)
+        {
+            // Finish only the preceding direction. Its endpoint and raw counts both stop at
+            // the previous image, before this observation's reverse movement began.
+            Collect(previous);
+            RestartWindow(previous);
+        }
         accumulatedX += observation.RawDeltaX;
         accumulatedY += observation.RawDeltaY;
         previous = observation;
         double dt = observation.TimeSeconds - anchor.TimeSeconds;
-        if (dt >= .10)
-        {
-            double dx = observation.TargetX - anchor.TargetX, dy = observation.TargetY - anchor.TargetY;
-            if (dt <= .25)
-            {
-                if (Math.Abs(accumulatedX) >= 4 && Math.Abs(accumulatedX) >= Math.Abs(accumulatedY) * 2.5 &&
-                    Math.Abs(dx) is >= 1 and <= 180 && Math.Abs(dy) <= Math.Max(12, Math.Abs(dx) * .35))
-                    Add(xPairs, new(accumulatedX, dx));
-                if (Math.Abs(accumulatedY) >= 4 && Math.Abs(accumulatedY) >= Math.Abs(accumulatedX) * 2.5 &&
-                    Math.Abs(dy) is >= 1 and <= 180 && Math.Abs(dx) <= Math.Max(12, Math.Abs(dy) * .35))
-                    Add(yPairs, new(accumulatedY, dy));
-            }
-            anchor = observation;
-            accumulatedX = accumulatedY = 0;
-        }
+        // Keep small coherent movements until there is measurable evidence, with a bounded
+        // window so camera drift or a changed view cannot be accumulated indefinitely.
+        if (Collect(observation) || dt >= MaximumWindowSeconds - 1e-9) RestartWindow(observation);
         lastIssue = "MoveHorizontallyThenVerticallyBothDirections";
         return Evaluate();
     }
+
+    private bool Collect(CalibrationObservation endpoint)
+    {
+        if (anchor == null) return false;
+        double dt = endpoint.TimeSeconds - anchor.TimeSeconds;
+        if (dt < MinimumWindowSeconds - 1e-9 || dt > MaximumWindowSeconds + 1e-9) return false;
+        double dx = endpoint.TargetX - anchor.TargetX, dy = endpoint.TargetY - anchor.TargetY;
+        bool horizontal = Math.Abs(accumulatedX) >= 4 && Math.Abs(accumulatedX) >= Math.Abs(accumulatedY) * 2.5 &&
+            Math.Abs(dx) >= MinimumDisplacementPixels && Math.Abs(dx) <= 180 && Math.Abs(dy) <= Math.Max(12, Math.Abs(dx) * .35);
+        bool vertical = Math.Abs(accumulatedY) >= 4 && Math.Abs(accumulatedY) >= Math.Abs(accumulatedX) * 2.5 &&
+            Math.Abs(dy) >= MinimumDisplacementPixels && Math.Abs(dy) <= 180 && Math.Abs(dx) <= Math.Max(12, Math.Abs(dy) * .35);
+        if (horizontal) Add(xPairs, new(accumulatedX, dx));
+        if (vertical) Add(yPairs, new(accumulatedY, dy));
+        return horizontal || vertical;
+    }
+
+    private void RestartWindow(CalibrationObservation observation)
+    { anchor = observation; accumulatedX = accumulatedY = 0; }
+
+    private static int DominantAxis(double x, double y) => Math.Abs(x) > 0 && Math.Abs(x) >= Math.Abs(y) * 2.5 ? 1 :
+        Math.Abs(y) > 0 && Math.Abs(y) >= Math.Abs(x) * 2.5 ? 2 : 0;
+    private static bool Reverses(double accumulated, double delta) => accumulated != 0 && delta != 0 &&
+        Math.Sign(accumulated) != Math.Sign(delta);
 
     private static void Add(List<Pair> values, Pair pair)
     {
@@ -111,26 +159,24 @@ public sealed class GuidedCalibration
 
     public CalibrationResult Evaluate()
     {
-        var x = Fit(xPairs);
-        var y = Fit(yPairs);
-        double duration = double.IsNaN(start) || double.IsNaN(last) ? 0 : Math.Max(0, last - start);
-        bool success = x.Good && y.Good && duration >= 2;
+        var progress = Progress;
+        var x = progress.X;
+        var y = progress.Y;
         return new CalibrationResult
         {
-            Success = success,
-            Status = success ? "CalibratedForCurrentView" : xPairs.Count >= 12 && yPairs.Count >= 12 ?
-                "InconsistentMotionRetryOnStationaryTarget" : lastIssue,
+            Success = progress.Complete,
+            Status = progress.Status,
             ContextKey = contextKey, ScreenHeight = screenHeight,
-            PixelsPerCountX = x.Gain, PixelsPerCountY = y.Gain,
-            FitX = x.Quality, FitY = y.Quality, SamplesX = x.Count, SamplesY = y.Count,
-            RelativeSpreadX = x.Spread, RelativeSpreadY = y.Spread,
-            DurationSeconds = duration, MeasuredUtc = DateTime.UtcNow
+            PixelsPerCountX = x.PixelsPerCount, PixelsPerCountY = y.PixelsPerCount,
+            FitX = x.Fit, FitY = y.Fit, SamplesX = x.CleanSamples, SamplesY = y.CleanSamples,
+            RelativeSpreadX = x.RelativeSpread, RelativeSpreadY = y.RelativeSpread,
+            DurationSeconds = progress.DurationSeconds, MeasuredUtc = DateTime.UtcNow
         };
     }
 
-    private static (double Gain, double Quality, int Count, double Spread, bool Good) Fit(List<Pair> pairs)
+    private static CalibrationAxisProgress Fit(List<Pair> pairs)
     {
-        if (pairs.Count == 0) return (0, 0, 0, 0, false);
+        if (pairs.Count == 0) return new(0, 0, 0, 0, 0, 0, 0, 0, "SamplesRequired", false);
         double Median(IEnumerable<double> values)
         {
             double[] sorted = values.Order().ToArray();
@@ -148,11 +194,16 @@ public sealed class GuidedCalibration
         double quality = energy > 0 ? Math.Clamp(1 - residual / energy, 0, 1) : 0;
         var relativeErrors = clean.Select(p => Math.Abs(p.Pixels / p.Counts - gain) / Math.Max(.001, Math.Abs(gain))).Order().ToArray();
         double spread = relativeErrors.Length > 0 ? relativeErrors[(int)Math.Floor((relativeErrors.Length - 1) * .9)] : 1;
-        bool good = clean.Length >= 12 && clean.Length >= pairs.Count * .75 && quality >= .88 &&
-            spread <= .25 &&
-            clean.Count(p => p.Counts > 0) >= 3 && clean.Count(p => p.Counts < 0) >= 3 &&
-            clean.Sum(p => Math.Abs(p.Counts)) >= 160 && CalibrationResult.ValidGain(gain);
-        return (gain, quality, clean.Length, spread, good);
+        int positive = clean.Count(p => p.Counts > 0), negative = clean.Count(p => p.Counts < 0);
+        double totalCounts = clean.Sum(p => Math.Abs(p.Counts));
+        string missingReason = pairs.Count >= 12 && clean.Length < pairs.Count * .75 ? "TooManyOutliers" :
+            clean.Length < 12 ? "SamplesRequired" :
+            quality < .88 || spread > .25 ? "InconsistentMotion" :
+            positive < 3 || negative < 3 ? "BothDirectionsRequired" :
+            totalCounts < 160 ? "MoreMovementRequired" :
+            !CalibrationResult.ValidGain(gain) ? "InvalidGain" : "Ready";
+        return new(pairs.Count, clean.Length, positive, negative, totalCounts, gain, quality, spread,
+            missingReason, missingReason == "Ready");
     }
 
     public void BreakInterval() { previous = anchor = null; accumulatedX = accumulatedY = 0; }

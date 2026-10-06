@@ -1,9 +1,10 @@
-AUTOAIMMY 0.3.1 - GUIDE DU TEST LOCAL
+AUTOAIMMY 0.3.2 - GUIDE DU TEST LOCAL
 
 AUTO presente les etats de session et de calibration plus clairement.
 Calibrer ma vue et Verifier mes images guident les premieres etapes.
 Les commandes avancees, le suivi, le HUD et les rapports sont depliables.
-Cette refonte visuelle ne change ni l'IA ni les conditions de validation.
+La calibration accumule les petits deplacements coherents et explique
+les refus. Les criteres de fiabilite restent obligatoires.
 
 1. Extraire tout AutoAimmy-win-x64.zip, puis ouvrir AutoAimmy.cmd.
    Installation existante : fermer Aimmy, lancer Mettre-a-jour.cmd,
@@ -15,8 +16,10 @@ Cette refonte visuelle ne change ni l'IA ni les conditions de validation.
    dans R6 sur le moniteur choisi. Elle demarre avec le jeu au premier plan.
 4. Choisir Calibrer ma vue : meme vue, cible immobile et decor visible,
    sans marcher ni tirer. Maintenir la touche de visee definie dans Aimmy
-   et faire de petits mouvements gauche/droite puis haut/bas, dans les
-   deux sens. La mesure sert a adapter les corrections a votre souris.
+   et faire des balayages lents et continus gauche/droite pendant environ
+   15 secondes, puis haut/bas pendant environ 15 secondes, en aller-retour.
+   Garder la cible visible et le meme zoom. La mesure sert a adapter les
+   corrections a votre souris.
 5. Une fois la calibration validee, activer l'assistance experimentale.
    Elle agit avec la touche de visee maintenue. F8 l'arrete.
    Le decor permet ensuite de remesurer la reponse et de choisir un profil
@@ -40,6 +43,21 @@ Comparer un ONNX, Modele precedent, Entrainer localement et l'import .pt.
 Suivi, profils et enregistrements contient les mesures et les captures.
 Lecture du jeu - experimental contient la lecture du HUD et sa validation.
 Rapports et exports locaux contient les commandes d'ouverture des ZIP.
+
+COMPRENDRE UN REFUS DE CALIBRATION
+H 12/12 et V 12/12 indiquent le minimum de mesures retenues par axe.
+Ce nombre ne garantit pas une calibration valide : il faut les deux sens,
+assez d'amplitude, un accord image/souris d'au moins 88 % et une dispersion
+de 25 % maximum. Ces chiffres ne sont pas une probabilite de toucher.
+Lire le diagnostic horizontal et vertical dans AUTO : il indique le sens
+manquant, l'amplitude insuffisante ou la mesure instable. Faire des
+balayages un peu plus amples si necessaire, toujours lents, sans secousses,
+sans marcher ni tirer et dans la meme vue.
+Le diagnostic du dernier essai reste visible dans AUTO apres la tentative.
+Il est aussi conserve en JSON dans data\local-profiles\calibration-diagnostics.
+Une image peut servir aux mesures passives jusqu'a 500 ms apres sa capture.
+Aucune image de plus de 150 ms ne peut produire une correction.
+La reussite d'une calibration et l'efficacite dans R6 ne sont pas garanties.
 
 POURQUOI ENCORE VERIFIER DES IMAGES ?
 Le modele propose des cadres ; ses predictions seules ne prouvent pas

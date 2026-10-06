@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup>
+<Compile Include="../../Aimmy2/AdaptiveControl/GuidedCalibration.cs" Link="GuidedCalibration.cs"/>
+<Compile Include="../../Aimmy2/AdaptiveControl/ControlModels.cs" Link="ControlModels.cs"/>
+<Compile Include="../../Aimmy2/AdaptiveControl/SceneMotionEstimator.cs" Link="SceneMotionEstimator.cs"/>
+<Compile Include="../../Aimmy2/LocalAutomation/SceneMotionObserver.cs" Link="SceneMotionObserver.cs"/>
+<Compile Include="../../Aimmy2/LocalAutomation/CalibrationSceneMasks.cs" Link="CalibrationSceneMasks.cs"/>
+</ItemGroup></Project>

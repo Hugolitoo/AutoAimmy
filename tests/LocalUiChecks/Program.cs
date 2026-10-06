@@ -15,7 +15,7 @@ internal static class Program
         string output = Path.GetFullPath(args.FirstOrDefault() ?? Path.Combine(Path.GetTempPath(), "AutoAimmy-ui-" + Guid.NewGuid().ToString("N")));
         Directory.CreateDirectory(output);
         Environment.SetEnvironmentVariable("AUTOAIMMY_DATA_DIR", Path.Combine(output, "test-data"));
-        Environment.SetEnvironmentVariable("AUTOAIMMY_VERSION", "0.3.1");
+        Environment.SetEnvironmentVariable("AUTOAIMMY_VERSION", "0.3.2");
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         var page = new AutoAimmyMenuControl();
@@ -145,6 +145,47 @@ internal static class Program
         runtimeType.GetMethod("EnableAssistance")!.Invoke(runtime, new object[] { false });
         activeField.SetValue(runtime, false);
         Console.WriteLine("PASS: old calibration stays disarmed after a short pause or pending view measurement, including a second activation request.");
+        var rejectedCalibration = new Aimmy2.AdaptiveControl.GuidedCalibration("test-reject", 1080);
+        double calibrationTime = 0, px = 1000, py = 1000;
+        for (int axis = 0; axis < 2; axis++)
+        for (int i = 0; i < 120; i++)
+        {
+            double counts = i % 16 < 8 ? 12 : -12;
+            double shift = counts * (i % 3 == 0 ? -1 : -2);
+            if (axis == 0) px += shift; else py += shift;
+            rejectedCalibration.Observe(new(calibrationTime, 1, px, py, axis == 0 ? counts : 0,
+                axis == 1 ? counts : 0, true, false, 100));
+            calibrationTime += .1;
+        }
+        if (rejectedCalibration.Progress.Complete || rejectedCalibration.Progress.X.Samples < 50 || rejectedCalibration.Progress.Y.Samples < 50)
+            throw new Exception("Noisy diagnostic fixture did not reach high rejected sample counts.");
+        runtimeType.GetField("calibrationFrames", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(runtime, 240);
+        runtimeType.GetField("calibrationHeldFrames", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(runtime, 240);
+        var calibrationField = runtimeType.GetField("calibration", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        calibrationField.SetValue(runtime, rejectedCalibration);
+        runtimeType.GetField("calibrationStart", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(runtime, -100d);
+        if (!SpinWait.SpinUntil(() => calibrationField.GetValue(runtime) == null, TimeSpan.FromSeconds(3)))
+            throw new Exception("Calibration timeout failed to resolve without game frames.");
+        string diagnostic = (string)runtimeType.GetProperty("CalibrationDetail")!.GetValue(runtime)!;
+        if (!diagnostic.Contains("incohérentes") && !diagnostic.Contains("dispersion"))
+            throw new Exception("High sample counts still produce a generic insufficient-measurement diagnosis: " + diagnostic);
+        runtimeType.GetMethod("PauseFrame")!.Invoke(runtime, new object[] { "Synthetic focus pause" });
+        typeof(AutoAimmyMenuControl).GetMethod("RefreshView", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
+        if ((string)runtimeType.GetProperty("CalibrationDetail")!.GetValue(runtime)! != diagnostic ||
+            (page.FindName("CalibrationDiagnosticText") as TextBlock)?.Text != diagnostic)
+            throw new Exception("Failure reason disappears when returning to AUTO.");
+        if (Directory.GetFiles(Path.Combine(output, "test-data", "local-profiles", "calibration-diagnostics"), "*.json").Length == 0)
+            throw new Exception("Calibration rejection was not saved locally.");
+        Console.WriteLine("PASS: high noisy sample counts report a quality reason, persist after a focus pause and save a local diagnostic without capture/input.");
+        var startSampler = runtimeType.GetMethod("StartCalibrationCapture", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var samplerTask = runtimeType.GetField("calibrationCaptureTask", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        for (int i = 0; i < 2; i++)
+        {
+            startSampler.Invoke(runtime, null); // Session is inactive: worker must close before any capture.
+            if (!((Task)samplerTask.GetValue(runtime)!).Wait(TimeSpan.FromSeconds(3))) throw new Exception("Inactive calibration sampler fails to close.");
+            ((Task)runtimeType.GetMethod("StopAsync")!.Invoke(runtime, null)!).GetAwaiter().GetResult();
+        }
+        Console.WriteLine("PASS: calibration sampler can stop and restart without disposed-token failure or capturing an inactive session.");
         // A non-pumping UI synchronization context exposes shutdown continuations that would deadlock.
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         var watch = System.Diagnostics.Stopwatch.StartNew();

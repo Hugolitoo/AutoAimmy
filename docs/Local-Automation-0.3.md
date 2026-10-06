@@ -1,20 +1,32 @@
-# AutoAimmy 0.3.1 — guide du test local
+# AutoAimmy 0.3.2 — guide du test local
 
 Cette version automatise la collecte, la mesure de la caméra, les sous-profils et les calculs d'apprentissage sur votre PC. L'assistance reste expérimentale et prévue pour les tests R6 contre IA. Une comparaison sur des images vérifiées peut montrer un gain local ; elle ne garantit pas le meilleur réglage possible ni une amélioration dans toutes les parties.
 
-La version 0.3.1 réorganise l'interface **AUTO** pour rendre les états et les premières actions plus faciles à lire. **Calibrer ma vue** lance la calibration guidée ; **Vérifier mes images** ouvre la revue des exemples. Les commandes avancées et les détails sont dans des panneaux dépliables. Les capacités d'analyse, les mesures requises et les conditions d'acceptation restent les mêmes.
+La version 0.3.2 accumule les petits déplacements cohérents pendant la calibration, sans abaisser les critères de fiabilité. **Calibrer ma vue** lance la mesure guidée et conserve un diagnostic précis du dernier essai dans **AUTO** et dans un fichier JSON local. **Vérifier mes images** ouvre la revue des exemples ; les commandes avancées et les détails restent dans des panneaux dépliables.
+
+La calibration utilise une vue plus large du jeu, avec un échantillonnage indépendant de l'inférence du modèle. Des zones fixes excluent l'arme, la lunette centrale et le HUD pour chercher le mouvement du décor autour. Garder une boîte de cible visible n'est plus nécessaire pour cette voie de mesure. Visez un décor fixe avec des détails, par exemple un mur de briques, en gardant la lunette utilisée pour le test. Si trop peu de décor reste visible, la mesure est refusée ; ce masque ne reconnaît pas toutes les lunettes.
 
 ## Ce que tu dois faire
 
 1. **Mettre à jour et ouvrir l'application.** Fermer Aimmy, lancer `Mettre-a-jour.cmd`, puis `AutoAimmy.cmd`. Pour une première installation, extraire entièrement `AutoAimmy-win-x64.zip`. Aucun SDK, Python ou logiciel de souris supplémentaire n'est à installer manuellement.
 2. **Charger le modèle habituel.** Le placer dans `data/bin/models` et le choisir dans **Modèles**. Ouvrir **AUTO** pour voir l'état réel de la session, de la calibration et de l'apprentissage. Les réglages R6 sauvegardés sont lus automatiquement. Avec plusieurs configurations, choisir une fois le bon ensemble ; il n'est pas nécessaire de retaper DPI, sensibilité ou lunette.
 3. **Laisser la collecte automatique activée.** Avec un modèle chargé, elle démarre lorsque R6 est au premier plan sur le moniteur choisi. Le bouton **Démarrer la session** reste disponible. Le passage sur une autre fenêtre suspend les images et finit la session automatique après environ dix secondes : cela permet de lancer les calculs hors du jeu.
-4. **Faire la calibration initiale.** Cliquer **Calibrer ma vue** (calibration guidée, 45 s maximum), retourner dans R6 pendant le compte à rebours, conserver la même vue et maintenir la touche de visée définie dans Aimmy. Devant un décor visible et une cible immobile, déplacer doucement la souris gauche/droite puis haut/bas, dans les deux sens. Ne pas marcher ni tirer. Le but est de mesurer combien l'image se déplace pour un mouvement de ta souris.
+4. **Faire la calibration initiale.** Cliquer **Calibrer ma vue** (calibration guidée, 45 s maximum), retourner dans R6 pendant le compte à rebours, conserver la même vue et maintenir la touche de visée définie dans Aimmy. Devant un décor visible et une cible immobile, faire des balayages lents et continus gauche/droite pendant environ **15 secondes**, puis haut/bas pendant environ **15 secondes**, en aller-retour. Garder la cible visible, sans changer de zoom, marcher ni tirer. Le but est de mesurer combien l'image se déplace pour un mouvement de ta souris.
 5. **Activer l'assistance si tu veux la tester.** Attendre une calibration validée, puis cliquer **Activer l'assistance expérimentale**. Elle nécessite R6 au premier plan, la touche de visée maintenue et une cible confirmée. **F8** coupe l'assistance. Après un arrêt F8, elle ne se réactive pas automatiquement. Une reprise après une pause attend une nouvelle mesure cohérente de la vue.
 6. **Faire deux sessions différentes, puis vérifier des images.** Quelques minutes par session suffisent pour commencer à collecter ; le nombre d'images utilisables compte plus que la durée. Revenir dans AUTO, attendre la fin de collecte ou cliquer **Arrêter la session**, puis **Vérifier mes images**. Le minimum est 40 images vérifiées, avec au moins 20 images de chaque côté de la comparaison et au moins 20 cibles annotées dans la validation. Deux sessions distinctes évitent de comparer le modèle sur les mêmes scènes presque identiques.
 7. **Laisser l'application ouverte pendant une pause.** Laisser **Apprendre automatiquement pendant mes pauses hors du jeu** activé. Ici, « pause » signifie que **R6 n'est plus la fenêtre au premier plan** ; rester dans le menu du jeu ne suffit pas. L'application importe les exemples, compare le seuil de détection, prépare le moteur local si nécessaire, entraîne un candidat puis mesure son résultat. Revenir dans R6 interrompt le calcul ; il pourra être relancé à la prochaine pause.
 
 Il n'y a aucun rapport à envoyer pour ces étapes. Les compteurs et messages dans AUTO indiquent ce qui manque et le résultat du dernier essai.
+
+## Comprendre la calibration et son diagnostic
+
+Les compteurs **H …/12** et **V …/12** indiquent le minimum de mesures retenues pour chaque axe. Même **12/12 sur les deux axes** ne garantit pas une calibration valide : l'application vérifie aussi les deux directions, l'amplitude totale, la proportion de mesures cohérentes et la qualité de l'accord entre les déplacements de l'image et de la souris. L'indicateur d'accord doit atteindre **88 %** et la dispersion rester à **25 % maximum**. Ces valeurs décrivent la mesure de caméra, pas une probabilité de toucher une cible.
+
+Si les compteurs avancent mais que la calibration n'est pas validée, lire le diagnostic horizontal et vertical dans **AUTO**. Il indique notamment un sens manquant, une amplitude trop faible, trop de mesures incohérentes, une dispersion excessive ou un accord image/souris insuffisant. Si l'amplitude manque, garder des balayages lents et les rendre un peu plus amples ; si la mesure est instable, conserver la même vue et une référence immobile. Éviter les petites secousses rapides et ne pas quitter le jeu pendant la mesure.
+
+Le résultat du dernier essai reste affiché dans **AUTO** après la fin de la calibration. Le diagnostic est aussi enregistré en JSON dans `data/local-profiles/calibration-diagnostics`, avec le résultat, la source de mesure, les valeurs de chaque axe et les éventuelles interruptions. Aucun envoi n'est nécessaire pour consulter ce diagnostic.
+
+Une image peut encore servir à une **mesure passive jusqu'à 500 ms après sa capture**. La génération de mouvements conserve une limite plus courte : **aucune image de plus de 150 ms ne peut produire une correction**. Autoriser ces mesures passives ne valide pas une scène ambiguë et ne garantit ni la réussite de la calibration ni une meilleure efficacité dans R6.
 
 ## Retrouver les détails et les commandes avancées
 
@@ -65,6 +77,7 @@ Les poids issus d'un candidat accepté sont enregistrés comme source du cycle s
 | --- | --- |
 | En attente d'un modèle | Charger l'ONNX dans Modèles pour démarrer la détection. |
 | Calibration nécessaire ou décor insuffisant | Faire la calibration guidée dans la vue utilisée. L'application manque de mesures cohérentes pour convertir les corrections en mouvements de souris. |
+| H 12/12 et V 12/12, essai non validé | Lire le diagnostic de chaque axe dans AUTO. Le nombre de mesures ne suffit pas si la dispersion, l'accord, les directions ou l'amplitude ne respectent pas les critères. |
 | En attente : …/40 images vérifiées | Vérifier des images de deux sessions. Le volume enregistré seul ne fournit pas d'annotations fiables. |
 | Calculs en pause pendant le jeu | Revenir dans AUTO ou une autre fenêtre pour libérer le CPU et autoriser l'entraînement. |
 | Derniers exemples déjà comparés | Jouer une nouvelle session puis vérifier de nouvelles images. Refaire indéfiniment le même essai ne fournit pas une nouvelle preuve. |
