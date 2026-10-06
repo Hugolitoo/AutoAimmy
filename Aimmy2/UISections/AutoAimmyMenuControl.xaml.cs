@@ -48,11 +48,11 @@ public partial class AutoAimmyMenuControl : UserControl
         var context = recording ? observation!.Context : imported;
         var settings = context.Settings;
         string status = settings?.ImportStatus ?? context.Status;
-        ImportTitle.Text = context.SettingsSource == "SettingsFile" && status == "Imported" ? "Réglages détectés · Imported" :
+        ImportTitle.Text = context.SettingsSource == "SettingsFile" && status == "Imported" ? "Réglages détectés · importés" :
             status == "ImportedCandidate" ? "Réglages proposés — dernier fichier sauvegardé, à vérifier" :
             status == "AmbiguousAccounts" ? "Plusieurs comptes R6 — réglages inconnus" :
             status == "NotFound" ? "Configuration R6 introuvable" : context.SettingsSource == "UserDeclared" && settings != null ?
-            "Ancien profil déclaré — relire les réglages" : "Réglages indisponibles · " + status;
+            "Ancien profil déclaré — relire les réglages" : status == "NotConfigured" ? "En attente des réglages R6" : "Réglages indisponibles";
         string sourceDate = DateTime.TryParse(settings?.SettingsFileLastWriteUtc, out var stamp) ? stamp.ToLocalTime().ToString("g") : "inconnue";
         ImportDetail.Text = context.SettingsSource == "SettingsFile" ?
             $"Source : fichier R6 sauvegardé · modification : {sourceDate}. Les changements non sauvegardés ne sont pas visibles." :

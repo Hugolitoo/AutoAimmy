@@ -15,7 +15,7 @@ internal static class Program
         string output = Path.GetFullPath(args.FirstOrDefault() ?? Path.Combine(Path.GetTempPath(), "AutoAimmy-ui-" + Guid.NewGuid().ToString("N")));
         Directory.CreateDirectory(output);
         Environment.SetEnvironmentVariable("AUTOAIMMY_DATA_DIR", Path.Combine(output, "test-data"));
-        Environment.SetEnvironmentVariable("AUTOAIMMY_VERSION", "0.3.0-preview");
+        Environment.SetEnvironmentVariable("AUTOAIMMY_VERSION", "0.3.1");
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         var page = new AutoAimmyMenuControl();
@@ -32,6 +32,33 @@ internal static class Program
             using var stream = File.Create(Path.Combine(output, position.Item1 + ".png")); encoder.Save(stream);
         }
         if (scroll.ExtentHeight <= scroll.ViewportHeight) throw new Exception("Dashboard should scroll at desktop viewport size.");
+        // Inspect the smallest content width as well as the expanded diagnostic controls.
+        void RenderNarrow(string name)
+        {
+            host.Width = 618; host.Height = 520;
+            host.Measure(new Size(618, 520)); host.Arrange(new Rect(0, 0, 618, 520)); host.UpdateLayout();
+            scroll.ScrollToTop(); host.UpdateLayout();
+            var rendered = new RenderTargetBitmap(618, 520, 96, 96, PixelFormats.Pbgra32); rendered.Render(host);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(rendered));
+            using var stream = File.Create(Path.Combine(output, name + ".png")); encoder.Save(stream);
+        }
+        RenderNarrow("narrow");
+        IEnumerable<DependencyObject> Visuals(DependencyObject parent)
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i); yield return child;
+                foreach (var descendant in Visuals(child)) yield return descendant;
+            }
+        }
+        foreach (var expander in Visuals(page).OfType<Expander>().ToArray()) expander.IsExpanded = true;
+        RenderNarrow("narrow-expanded");
+        foreach (var button in Visuals(page).OfType<Button>())
+            if (button.ActualWidth > scroll.ViewportWidth + 1) throw new Exception("Workflow button overflows the minimum window width.");
+        scroll.ScrollToVerticalOffset(500); host.UpdateLayout();
+        var expanded = new RenderTargetBitmap(618, 520, 96, 96, PixelFormats.Pbgra32); expanded.Render(host);
+        var expandedEncoder = new PngBitmapEncoder(); expandedEncoder.Frames.Add(BitmapFrame.Create(expanded));
+        using (var stream = File.Create(Path.Combine(output, "narrow-details.png"))) expandedEncoder.Save(stream);
         foreach (string button in new[] { "StartLocalButton", "CalibrateLocalButton", "AssistLocalButton", "ReviewLearningButton", "OptimizeLearningButton", "StartTrainingButton" })
             if (page.FindName(button) is not Button) throw new Exception("Missing workflow control: " + button);
         // Simulate a periodic status read already in flight when a user requests image import.

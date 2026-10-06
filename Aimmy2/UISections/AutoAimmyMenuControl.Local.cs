@@ -184,7 +184,7 @@ public partial class AutoAimmyMenuControl
         ImportTrainingButton.IsEnabled = !learningBusy && !session.Active;
         StartTrainingButton.IsEnabled = !learningBusy && !session.Active;
         CancelTrainingButton.IsEnabled = learningBusy;
-        TrainingStatusText.Text = training.State.Detail;
+        TrainingStatusText.Text = training.State.Status == "Idle" ? "" : training.State.Detail;
         OutputModeText.Text = session.AssistanceEnabled ? "Assistance calibrée autorisée : touche de visée maintenue, R6 au premier plan. F8 pour arrêter." :
             "Observation / calibration : aucun déplacement de souris généré.";
         if (session.Active)
@@ -195,6 +195,7 @@ public partial class AutoAimmyMenuControl
         }
         if (learningState != null)
             LearningStatusText.Text = $"{learningState.ReviewedImages} images vérifiées · {learningState.PendingImages} à examiner\n" + learningState.Detail;
+        RefreshDashboardSummary();
         if (!inspecting && DateTime.UtcNow - lastLearningRefresh > TimeSpan.FromSeconds(8)) _ = RefreshLearningAsync();
     }
 

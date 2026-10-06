@@ -1,4 +1,9 @@
-AUTOAIMMY 0.3 - GUIDE DU TEST LOCAL
+AUTOAIMMY 0.3.1 - GUIDE DU TEST LOCAL
+
+AUTO presente les etats de session et de calibration plus clairement.
+Calibrer ma vue et Verifier mes images guident les premieres etapes.
+Les commandes avancees, le suivi, le HUD et les rapports sont depliables.
+Cette refonte visuelle ne change ni l'IA ni les conditions de validation.
 
 1. Extraire tout AutoAimmy-win-x64.zip, puis ouvrir AutoAimmy.cmd.
    Installation existante : fermer Aimmy, lancer Mettre-a-jour.cmd,
@@ -8,7 +13,7 @@ AUTOAIMMY 0.3 - GUIDE DU TEST LOCAL
    dans Modeles. Aucun modele personnel n'est inclus dans le ZIP.
 3. Ouvrir AUTO. Laisser la collecte automatique activee, puis revenir
    dans R6 sur le moniteur choisi. Elle demarre avec le jeu au premier plan.
-4. Faire Calibration guidee : meme vue, cible immobile et decor visible,
+4. Choisir Calibrer ma vue : meme vue, cible immobile et decor visible,
    sans marcher ni tirer. Maintenir la touche de visee definie dans Aimmy
    et faire de petits mouvements gauche/droite puis haut/bas, dans les
    deux sens. La mesure sert a adapter les corrections a votre souris.
@@ -18,15 +23,23 @@ AUTOAIMMY 0.3 - GUIDE DU TEST LOCAL
    de vue. Si la mesure reste incertaine, refaire la calibration guidee.
 6. Faire deux sessions differentes. Revenir dans AUTO : la session
    automatique se termine apres environ 10 secondes hors de R6.
-   Choisir Verifier les images : clic droit pour retirer une fausse boite,
+   Choisir Verifier mes images : clic droit pour retirer une fausse boite,
    glisser gauche pour ajouter une cible, puis valider toute l'image.
    Verifier au moins 20 images de chaque session, dont au moins 20 cibles
    dans la session de validation. Une image vide peut etre validee aussi.
-7. Laisser l'apprentissage automatique active et l'application ouverte
+7. Laisser Apprendre automatiquement pendant mes pauses hors du jeu active
+   et l'application ouverte
    pendant une pause, avec R6 hors du premier plan. L'application compare
    les seuils, prepare le moteur, entraine et evalue un candidat.
    Le calcul est interrompu quand R6 revient au premier plan.
    Un candidat refuse conserve le modele et le seuil deja acceptes.
+
+COMMANDES ET PANNEAUX DE AUTO
+Comparaisons et entrainement avances contient Optimiser la detection,
+Comparer un ONNX, Modele precedent, Entrainer localement et l'import .pt.
+Suivi, profils et enregistrements contient les mesures et les captures.
+Lecture du jeu - experimental contient la lecture du HUD et sa validation.
+Rapports et exports locaux contient les commandes d'ouverture des ZIP.
 
 POURQUOI ENCORE VERIFIER DES IMAGES ?
 Le modele propose des cadres ; ses predictions seules ne prouvent pas

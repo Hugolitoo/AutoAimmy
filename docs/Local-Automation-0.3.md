@@ -1,22 +1,32 @@
-# AutoAimmy 0.3.0 — guide du test local
+# AutoAimmy 0.3.1 — guide du test local
 
 Cette version automatise la collecte, la mesure de la caméra, les sous-profils et les calculs d'apprentissage sur votre PC. L'assistance reste expérimentale et prévue pour les tests R6 contre IA. Une comparaison sur des images vérifiées peut montrer un gain local ; elle ne garantit pas le meilleur réglage possible ni une amélioration dans toutes les parties.
+
+La version 0.3.1 réorganise l'interface **AUTO** pour rendre les états et les premières actions plus faciles à lire. **Calibrer ma vue** lance la calibration guidée ; **Vérifier mes images** ouvre la revue des exemples. Les commandes avancées et les détails sont dans des panneaux dépliables. Les capacités d'analyse, les mesures requises et les conditions d'acceptation restent les mêmes.
 
 ## Ce que tu dois faire
 
 1. **Mettre à jour et ouvrir l'application.** Fermer Aimmy, lancer `Mettre-a-jour.cmd`, puis `AutoAimmy.cmd`. Pour une première installation, extraire entièrement `AutoAimmy-win-x64.zip`. Aucun SDK, Python ou logiciel de souris supplémentaire n'est à installer manuellement.
 2. **Charger le modèle habituel.** Le placer dans `data/bin/models` et le choisir dans **Modèles**. Ouvrir **AUTO** pour voir l'état réel de la session, de la calibration et de l'apprentissage. Les réglages R6 sauvegardés sont lus automatiquement. Avec plusieurs configurations, choisir une fois le bon ensemble ; il n'est pas nécessaire de retaper DPI, sensibilité ou lunette.
-3. **Laisser la collecte automatique activée.** Avec un modèle chargé, elle démarre lorsque R6 est au premier plan sur le moniteur choisi. Le bouton **Démarrer la session locale** reste disponible. Le passage sur une autre fenêtre suspend les images et finit la session automatique après environ dix secondes : cela permet de lancer les calculs hors du jeu.
-4. **Faire la calibration initiale.** Cliquer **Calibration guidée (45 s max)**, retourner dans R6 pendant le compte à rebours, conserver la même vue et maintenir la touche de visée définie dans Aimmy. Devant un décor visible et une cible immobile, déplacer doucement la souris gauche/droite puis haut/bas, dans les deux sens. Ne pas marcher ni tirer. Le but est de mesurer combien l'image se déplace pour un mouvement de ta souris.
+3. **Laisser la collecte automatique activée.** Avec un modèle chargé, elle démarre lorsque R6 est au premier plan sur le moniteur choisi. Le bouton **Démarrer la session** reste disponible. Le passage sur une autre fenêtre suspend les images et finit la session automatique après environ dix secondes : cela permet de lancer les calculs hors du jeu.
+4. **Faire la calibration initiale.** Cliquer **Calibrer ma vue** (calibration guidée, 45 s maximum), retourner dans R6 pendant le compte à rebours, conserver la même vue et maintenir la touche de visée définie dans Aimmy. Devant un décor visible et une cible immobile, déplacer doucement la souris gauche/droite puis haut/bas, dans les deux sens. Ne pas marcher ni tirer. Le but est de mesurer combien l'image se déplace pour un mouvement de ta souris.
 5. **Activer l'assistance si tu veux la tester.** Attendre une calibration validée, puis cliquer **Activer l'assistance expérimentale**. Elle nécessite R6 au premier plan, la touche de visée maintenue et une cible confirmée. **F8** coupe l'assistance. Après un arrêt F8, elle ne se réactive pas automatiquement. Une reprise après une pause attend une nouvelle mesure cohérente de la vue.
-6. **Faire deux sessions différentes, puis vérifier des images.** Quelques minutes par session suffisent pour commencer à collecter ; le nombre d'images utilisables compte plus que la durée. Revenir dans AUTO, attendre la fin de collecte ou cliquer **Arrêter la session**, puis **Vérifier les images**. Le minimum est 40 images vérifiées, avec au moins 20 images de chaque côté de la comparaison et au moins 20 cibles annotées dans la validation. Deux sessions distinctes évitent de comparer le modèle sur les mêmes scènes presque identiques.
-7. **Laisser l'application ouverte pendant une pause.** Laisser **Comparer et apprendre automatiquement lorsque R6 est en pause** activé. Ici, « pause » signifie que **R6 n'est plus la fenêtre au premier plan** ; rester dans le menu du jeu ne suffit pas. L'application importe les exemples, compare le seuil de détection, prépare le moteur local si nécessaire, entraîne un candidat puis mesure son résultat. Revenir dans R6 interrompt le calcul ; il pourra être relancé à la prochaine pause.
+6. **Faire deux sessions différentes, puis vérifier des images.** Quelques minutes par session suffisent pour commencer à collecter ; le nombre d'images utilisables compte plus que la durée. Revenir dans AUTO, attendre la fin de collecte ou cliquer **Arrêter la session**, puis **Vérifier mes images**. Le minimum est 40 images vérifiées, avec au moins 20 images de chaque côté de la comparaison et au moins 20 cibles annotées dans la validation. Deux sessions distinctes évitent de comparer le modèle sur les mêmes scènes presque identiques.
+7. **Laisser l'application ouverte pendant une pause.** Laisser **Apprendre automatiquement pendant mes pauses hors du jeu** activé. Ici, « pause » signifie que **R6 n'est plus la fenêtre au premier plan** ; rester dans le menu du jeu ne suffit pas. L'application importe les exemples, compare le seuil de détection, prépare le moteur local si nécessaire, entraîne un candidat puis mesure son résultat. Revenir dans R6 interrompt le calcul ; il pourra être relancé à la prochaine pause.
 
 Il n'y a aucun rapport à envoyer pour ces étapes. Les compteurs et messages dans AUTO indiquent ce qui manque et le résultat du dernier essai.
 
-## Vérifier les images : la petite étape encore nécessaire
+## Retrouver les détails et les commandes avancées
 
-Dans **Vérifier les images**, retirer une fausse boîte par clic droit et dessiner une cible oubliée en faisant glisser le bouton gauche. Choisir la bonne classe avant de dessiner. Valider toute l'image, ou confirmer explicitement une image sans cible. Passer les images ambiguës.
+- **Suivi, profils et enregistrements** affiche les détails de calibration, les profils, les compteurs de capture et l'accès aux enregistrements.
+- **Comparaisons et entraînement avancés** contient **Optimiser la détection**, **Comparer un ONNX**, **Modèle précédent**, **Entraîner localement** et **Alternative : importer un .pt**. Ces commandes restent soumises aux conditions de session et de validation.
+- **Source des réglages et sensibilités ADS** détaille le fichier R6 lu, les sensibilités sauvegardées et les valeurs encore inconnues.
+- **Lecture du jeu · expérimental** affiche la lecture locale du HUD et **Collecter 20 images de validation**. Cette collecte sert à examiner la lecture visuelle ; elle ne remplace pas la revue des annotations du détecteur.
+- **Rapports et exports locaux** contient **Ouvrir les rapports** et **Afficher le dernier ZIP**. Le parcours local ne demande aucun envoi de rapport.
+
+## Vérifier mes images : la petite étape encore nécessaire
+
+Dans **Vérifier mes images**, retirer une fausse boîte par clic droit et dessiner une cible oubliée en faisant glisser le bouton gauche. Choisir la bonne classe avant de dessiner. Valider toute l'image, ou confirmer explicitement une image sans cible. Passer les images ambiguës.
 
 Les détections confiantes et les cas difficiles sont sauvegardés comme **propositions non vérifiées**. Des cadres stables, du sang ou un marqueur de touche ne prouvent pas à eux seuls que toutes les cibles d'une image sont correctement annotées. Cette version garde donc une validation humaine avant de décider qu'un détecteur est meilleur. Cela évite d'entraîner et d'accepter un modèle qui reproduit simplement ses propres erreurs.
 
@@ -45,7 +55,7 @@ Le modèle ONNX habituel reste utilisable pour détecter et comparer les seuils.
 
 La reconstruction ne modifie pas le modèle et ne l'améliore pas en elle-même. Elle permet d'entraîner une copie. L'entraînement courant est limité à dix époques sur CPU ; sa durée dépend du PC et du nombre d'images. Quand le jeu revient au premier plan, le travail est annulé et peut être recommencé ensuite ; ce n'est pas une reprise garantie au milieu d'une époque. Les détections du jeu continuent d'utiliser le modèle chargé jusqu'à l'acceptation et au chargement d'un candidat à la fin du calcul, hors session active.
 
-L'application demande un gain F1 d'au moins 0,01 à IoU 0,5, sans baisse de précision ou rappel supérieure à 0,01 ; la comparaison des modèles vérifie aussi le temps d'évaluation local. Ce temps inclut le chargement d'image et le prétraitement, ce n'est pas un chiffre de FPS dans R6. Les noms et l'ordre des classes doivent rester identiques. **Revenir au modèle précédent** reste disponible dans AUTO.
+L'application demande un gain F1 d'au moins 0,01 à IoU 0,5, sans baisse de précision ou rappel supérieure à 0,01 ; la comparaison des modèles vérifie aussi le temps d'évaluation local. Ce temps inclut le chargement d'image et le prétraitement, ce n'est pas un chiffre de FPS dans R6. Les noms et l'ordre des classes doivent rester identiques. **Modèle précédent** reste disponible dans **Comparaisons et entraînement avancés**.
 
 Les poids issus d'un candidat accepté sont enregistrés comme source du cycle suivant. Un nouvel essai refusé conserve le dernier seuil et le modèle acceptés. Pour la surveillance ultérieure, toutes les images de validation utilisées doivent être postérieures à la promotion, avec au moins 40 cibles annotées ; une baisse F1 de plus de 0,03 par rapport au précédent déclenche le retour arrière.
 

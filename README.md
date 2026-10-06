@@ -1,6 +1,8 @@
 # AutoAimmy
 
-**AutoAimmy 0.3.0 — expérimental, pour les tests R6 contre IA.** L'application analyse les images du jeu sur votre PC, enregistre des exemples, mesure la réponse de la caméra et adapte une assistance calibrée. Les comparaisons et l'entraînement du détecteur peuvent se lancer automatiquement quand R6 quitte le premier plan. Il reste nécessaire de vérifier des images pour disposer d'une mesure fiable de la détection. Cette version ne prouve pas que votre visée ou votre modèle sont meilleurs dans une partie réelle.
+**AutoAimmy 0.3.1 — expérimental, pour les tests R6 contre IA.** L'application analyse les images du jeu sur votre PC, enregistre des exemples, mesure la réponse de la caméra et adapte une assistance calibrée. Les comparaisons et l'entraînement du détecteur peuvent se lancer automatiquement quand R6 quitte le premier plan. Il reste nécessaire de vérifier des images pour disposer d'une mesure fiable de la détection. Cette version ne prouve pas que votre visée ou votre modèle sont meilleurs dans une partie réelle.
+
+La version 0.3.1 réorganise visuellement **AUTO** : les états de session et de calibration sont plus visibles, **Calibrer ma vue** et **Vérifier mes images** guident les premières étapes. Les commandes avancées, le suivi, la lecture du HUD et les rapports sont dans des panneaux dépliables. Cette refonte ne change pas les capacités de l'IA ni les conditions de validation.
 
 ## Installer ou mettre à jour
 
@@ -11,9 +13,9 @@ Mettre votre modèle ONNX habituel dans `data/bin/models`, puis le charger dans 
 ## Premier essai
 
 1. Ouvrir **AUTO**. Laisser **Enregistrer automatiquement mes sessions R6** activé, puis revenir dans R6 sur le moniteur sélectionné. La collecte démarre lorsqu'un modèle est chargé et que le jeu est au premier plan.
-2. Faire la **Calibration guidée** dans la vue utilisée : maintenir la touche de visée configurée dans Aimmy, faire de petits mouvements horizontaux puis verticaux dans les deux sens, sans marcher ni tirer. Le décor doit être visible et une cible immobile aide la mesure.
+2. Cliquer **Calibrer ma vue** pour lancer la calibration guidée dans la vue utilisée : maintenir la touche de visée configurée dans Aimmy, faire de petits mouvements horizontaux puis verticaux dans les deux sens, sans marcher ni tirer. Le décor doit être visible et une cible immobile aide la mesure.
 3. Après validation, cliquer **Activer l'assistance expérimentale**. Elle agit avec la touche de visée maintenue et une cible confirmée. **F8** l'arrête. L'activation initiale reste un choix explicite.
-4. Revenir dans AUTO après le test. La collecte automatique se termine après environ dix secondes hors de la fenêtre R6. **Vérifier les images** permet de corriger les cadres et de confirmer les images sans cible.
+4. Revenir dans AUTO après le test. La collecte automatique se termine après environ dix secondes hors de la fenêtre R6. **Vérifier mes images** permet de corriger les cadres et de confirmer les images sans cible.
 5. Répéter sur une deuxième session et vérifier au moins **20 images par session**. Avec 40 images vérifiées au total et assez de cibles dans la validation, l'application peut comparer les seuils, préparer le moteur local, entraîner un candidat et le comparer pendant les pauses.
 
 Le [guide 0.3](docs/Local-Automation-0.3.md) explique les états de l'interface, les conditions des mesures et la marche à suivre. Aucun ZIP d'observation ne doit être envoyé à un développeur pour utiliser ce parcours.

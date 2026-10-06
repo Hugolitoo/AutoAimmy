@@ -1,121 +1,165 @@
 <UserControl x:Class="Aimmy2.Controls.AutoAimmyMenuControl"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <UserControl.Resources>
-        <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#E6FFFFFF"/>
-            <Setter Property="TextWrapping" Value="Wrap"/>
-        </Style>
-        <Style TargetType="Button">
-            <Setter Property="Background" Value="#FF362A52"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="12,8"/>
-            <Setter Property="Margin" Value="0,0,8,8"/>
-            <Setter Property="BorderThickness" Value="0"/>
-        </Style>
-    </UserControl.Resources>
-    <ScrollViewer x:Name="DashboardScroll" VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="22,14,22,20">
-            <DockPanel Margin="0,0,0,12">
-                <TextBlock x:Name="VersionText" DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="#AC9AD5"/>
-                <TextBlock Text="AutoAimmy" FontSize="24" FontWeight="Bold"/>
-            </DockPanel>
-            <Border Background="#1829BA86" CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock x:Name="ObservationTitle" FontSize="17" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="ObservationDetail" Margin="0,5,0,0"/>
-                    <TextBlock x:Name="ModelText" Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="OutputModeText" Text="Mode observation : l’assistance ne déplace pas la souris." Foreground="#BFFFFFFF" Margin="0,4,0,0"/>
-                </StackPanel>
-            </Border>
-            <Border Background="#2229BA86" CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock Text="Session locale · calibration et assistance" FontSize="17" FontWeight="SemiBold"/>
-                    <TextBlock Text="1. Chargez un modèle. 2. Démarrez la session. 3. Calibrez devant une cible immobile, sans marcher ni tirer, dans la vue que vous utiliserez. 4. Activez l’assistance." Margin="0,6,0,6"/>
-                    <TextBlock x:Name="LocalStatusText" Foreground="#E6D8B3"/>
-                    <CheckBox x:Name="AutoCaptureToggle" Foreground="#E6FFFFFF" Content="Enregistrer automatiquement mes sessions R6" IsChecked="True" Margin="0,6,0,6"/>
-                    <TextBlock x:Name="LocalProfileText" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="LocalCaptureText" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="SceneStatusText" Margin="0,6,0,0" Foreground="#E6D8B3"/>
-                    <TextBlock x:Name="GameplayStatusText" Margin="0,6,0,0" Foreground="#E6D8B3"/>
-                    <TextBlock Text="Enregistrement local à 5 images/s, avec lecture animée. Maximum 512 Mo par session / 2 Go au total, puis arrêt de la collecte. Aucun envoi. Les profils utilisent la taille et la vitesse à l’écran, pas des mètres." Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
-                    <WrapPanel Margin="0,12,0,0">
-                        <Button x:Name="StartLocalButton" Content="Démarrer la session locale" Click="StartLocal_Click"/>
-                        <Button x:Name="CalibrateLocalButton" Content="Calibration guidée (45 s max)" Click="CalibrateLocal_Click"/>
-                        <Button x:Name="AssistLocalButton" Content="Activer l’assistance expérimentale" Click="AssistLocal_Click"/>
-                        <Button x:Name="StopLocalButton" Content="Arrêter la session" Click="StopLocal_Click"/>
-                        <Button Content="Voir les enregistrements" Click="OpenRecordings_Click"/>
-                    </WrapPanel>
-                    <TextBlock Text="F8 arrête l’assistance. Le décor permet de mesurer la réponse de caméra et de charger un profil de vue lorsque les mesures sont cohérentes. Si le décor est insuffisant, utilisez la calibration guidée." Foreground="#E6D8B3"/>
-                </StackPanel>
-            </Border>
-            <Border Background="#14FFFFFF" CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock Text="Amélioration du détecteur sur ce PC" FontSize="17" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="LearningStatusText" Margin="0,6,0,0"/>
-                    <CheckBox x:Name="AutoLearningToggle" Foreground="#E6FFFFFF" Content="Comparer et apprendre automatiquement lorsque R6 est en pause" IsChecked="True" Margin="0,6,0,6"/>
-                    <TextBlock x:Name="AutomaticLearningStatusText" Foreground="#E6D8B3"/>
-                    <TextBlock Text="Les détections stables et les cas difficiles sont conservés. Vérifiez les exemples ici ; l’application peut ensuite comparer automatiquement les seuils et les modèles sur des sessions séparées. Les cadres proposés ne sont pas une vérité terrain." Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
-                    <WrapPanel Margin="0,12,0,0">
-                        <Button x:Name="ReviewLearningButton" Content="Vérifier les images" Click="ReviewLearning_Click"/>
-                        <Button x:Name="OptimizeLearningButton" Content="Optimiser la détection locale" Click="OptimizeLearning_Click"/>
-                        <Button x:Name="CompareModelButton" Content="Comparer un modèle ONNX" Click="CompareModel_Click"/>
-                        <Button x:Name="RollbackModelButton" Content="Revenir au modèle précédent" Click="RollbackModel_Click"/>
-                    </WrapPanel>
-                    <TextBlock x:Name="LearningActionText" Foreground="#E6D8B3"/>
-                    <TextBlock Text="Le moteur local est préparé automatiquement au premier entraînement (téléchargement unique). Les exports YOLOv8 compatibles peuvent être reconstruits depuis leur ONNX, avec vérification des sorties. L’analyse et l’entraînement restent sur ce PC." Foreground="#BFFFFFFF"/>
-                    <WrapPanel Margin="0,12,0,0">
-                        <Button x:Name="ImportTrainingButton" Content="Alternative : importer un .pt" Click="ImportTraining_Click"/>
-                        <Button x:Name="StartTrainingButton" Content="Entraîner et comparer localement" Click="StartTraining_Click"/>
-                        <Button x:Name="CancelTrainingButton" Content="Annuler le calcul" Click="CancelTraining_Click"/>
-                    </WrapPanel>
-                    <TextBlock Text="L’import .pt est une alternative facultative pour un export non reconstructible. Importez uniquement une source de confiance : les fichiers PyTorch peuvent contenir du code." Foreground="#BFFFFFFF"/>
-                    <TextBlock x:Name="TrainingStatusText" Foreground="#E6D8B3" Margin="0,6,0,0"/>
-                </StackPanel>
-            </Border>
-            <Border Background="#14FFFFFF" CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock x:Name="ImportTitle" FontSize="17" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="ImportDetail" Foreground="#BFFFFFFF" Margin="0,5,0,8"/>
-                    <TextBlock x:Name="SettingsText" FontSize="14"/>
-                    <TextBlock x:Name="AdsText" Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="UnknownText" Foreground="#E6D8B3" Margin="0,8,0,0"/>
-                    <StackPanel x:Name="AccountChoicePanel" Visibility="Collapsed" Margin="0,12,0,0">
-                        <TextBlock Text="Plusieurs configurations : sélectionnez le bon ensemble de réglages, sans rien retaper."/>
-                        <ComboBox x:Name="AccountChoices" DisplayMemberPath="Label" Margin="0,8,0,8"/>
-                        <Button x:Name="SelectAccountButton" Content="Utiliser ces réglages" Click="SelectAccount_Click" HorizontalAlignment="Left"/>
-                    </StackPanel>
-                    <WrapPanel Margin="0,12,0,0">
-                        <Button x:Name="RefreshSettingsButton" Content="Relire les réglages R6" Click="RefreshSettings_Click"/>
-                        <Button Content="Ouvrir les modèles" Click="OpenModels_Click"/>
-                    </WrapPanel>
-                    <TextBlock x:Name="ActionMessage" Foreground="#E6D8B3"/>
-                </StackPanel>
-            </Border>
-            <Border Background="#14FFFFFF" CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock Text="Lecture du HUD en direct · expérimental" FontSize="17" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="LiveStatusText" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="LiveValuesText" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="LiveDetailText" Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
-                    <TextBlock Text="DPI : pas lisible dans le jeu. Arme/lunette sous forme d’icônes et état ADS : reconnaissance à développer et valider." Foreground="#E6D8B3" Margin="0,6,0,0"/>
-                    <TextBlock Text="Pour préparer cette reconnaissance : ce bouton sauvegarde 20 paires d’images du jeu sur ce PC. Rien n’est envoyé automatiquement." Foreground="#BFFFFFFF" Margin="0,10,0,8"/>
-                    <Button x:Name="ValidationCaptureButton" Content="Collecter 20 images pour validation" Click="StartValidation_Click" HorizontalAlignment="Left"/>
-                    <TextBlock x:Name="ValidationCaptureText" Foreground="#E6D8B3"/>
-                </StackPanel>
-            </Border>
-            <Border Background="#14FFFFFF" CornerRadius="8" Padding="14">
-                <StackPanel>
-                    <TextBlock Text="Rapport et prochaine étape" FontSize="17" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="ReportText" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="NextStepText" Foreground="#BFFFFFFF" Margin="0,6,0,10"/>
-                    <WrapPanel>
-                        <Button Content="Ouvrir les rapports" Click="OpenReports_Click"/>
-                        <Button x:Name="LatestReportButton" Content="Afficher le dernier ZIP" Click="ShowLatestReport_Click"/>
-                    </WrapPanel>
-                    <TextBlock Text="Les ZIP restent sur ce PC. Aucun rapport n’est envoyé automatiquement." Foreground="#BFFFFFFF"/>
-                </StackPanel>
-            </Border>
-        </StackPanel>
-    </ScrollViewer>
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ FontFamily="Segoe UI" UseLayoutRounding="True" SnapsToDevicePixels="True">
+ <UserControl.Resources>
+  <SolidColorBrush x:Key="AutoText" Color="#F1EDF8"/>
+  <SolidColorBrush x:Key="AutoMuted" Color="#A79DB9"/>
+  <SolidColorBrush x:Key="AutoViolet" Color="#B99AFF"/>
+  <SolidColorBrush x:Key="AutoMint" Color="#81E8CB"/>
+  <SolidColorBrush x:Key="AutoAmber" Color="#F0C787"/>
+  <Style TargetType="TextBlock">
+   <Setter Property="Foreground" Value="{StaticResource AutoText}"/>
+   <Setter Property="TextWrapping" Value="Wrap"/>
+   <Setter Property="FontSize" Value="12"/>
+   <Setter Property="LineHeight" Value="18"/>
+  </Style>
+  <Style x:Key="MutedText" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="Foreground" Value="{StaticResource AutoMuted}"/></Style>
+  <Style x:Key="Caption" TargetType="TextBlock" BasedOn="{StaticResource MutedText}"><Setter Property="FontSize" Value="10"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="LineHeight" Value="15"/></Style>
+  <Style x:Key="SectionTitle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontSize" Value="18"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="LineHeight" Value="25"/></Style>
+  <Style x:Key="Message" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+   <Setter Property="Foreground" Value="{StaticResource AutoAmber}"/><Setter Property="Margin" Value="0,10,0,0"/>
+   <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers>
+  </Style>
+  <Style x:Key="Card" TargetType="Border">
+   <Setter Property="Background" Value="#F2171222"/><Setter Property="BorderBrush" Value="#403D3054"/><Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="CornerRadius" Value="16"/><Setter Property="Padding" Value="20"/><Setter Property="Margin" Value="0,0,0,14"/>
+  </Style>
+  <Style x:Key="AutoButton" TargetType="Button">
+   <Setter Property="Foreground" Value="{StaticResource AutoText}"/><Setter Property="Background" Value="#252032"/><Setter Property="BorderBrush" Value="#443654"/><Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="FontSize" Value="12"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Padding" Value="14,10"/><Setter Property="MinHeight" Value="38"/><Setter Property="Margin" Value="0,0,8,8"/><Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" FontWeight="SemiBold" TextAlignment="Center"/></DataTemplate></Setter.Value></Setter>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+    <Border x:Name="ButtonSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="9" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/></Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ButtonSurface" Property="BorderBrush" Value="#D1BDF8"/><Setter TargetName="ButtonSurface" Property="Opacity" Value="0.88"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="ButtonSurface" Property="Opacity" Value="0.65"/></Trigger>
+     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ButtonSurface" Property="BorderBrush" Value="White"/><Setter TargetName="ButtonSurface" Property="BorderThickness" Value="2"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ButtonSurface" Property="Opacity" Value="0.35"/><Setter Property="Cursor" Value="Arrow"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="Button" BasedOn="{StaticResource AutoButton}"/>
+  <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource AutoButton}">
+   <Setter Property="Foreground" Value="#160D27"/><Setter Property="BorderBrush" Value="#C8AFFE"/>
+   <Setter Property="Background"><Setter.Value><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#C8AFFE" Offset="0"/><GradientStop Color="#A685F0" Offset="1"/></LinearGradientBrush></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="AssistButton" TargetType="Button" BasedOn="{StaticResource AutoButton}"><Setter Property="Foreground" Value="#10261F"/><Setter Property="Background" Value="{StaticResource AutoMint}"/><Setter Property="BorderBrush" Value="{StaticResource AutoMint}"/></Style>
+  <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource AutoButton}"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{StaticResource AutoMuted}"/><Setter Property="BorderBrush" Value="#403D3054"/></Style>
+  <Style TargetType="CheckBox">
+   <Setter Property="Foreground" Value="{StaticResource AutoText}"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" Foreground="{StaticResource AutoText}"/></DataTemplate></Setter.Value></Setter>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+    <Grid Background="Transparent"><Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+     <Border x:Name="SwitchTrack" Width="34" Height="20" Background="#44384F" BorderBrush="#6D5B7D" BorderThickness="1" CornerRadius="10" HorizontalAlignment="Left" VerticalAlignment="Center"><Ellipse x:Name="SwitchThumb" Width="12" Height="12" Fill="#B7ADC4" HorizontalAlignment="Left" Margin="3,0"/></Border>
+     <ContentPresenter Grid.Column="1" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+    </Grid>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsChecked" Value="True"><Setter TargetName="SwitchTrack" Property="Background" Value="#294B40"/><Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{StaticResource AutoMint}"/><Setter TargetName="SwitchThumb" Property="Fill" Value="{StaticResource AutoMint}"/><Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right"/></Trigger>
+     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="SwitchTrack" Property="BorderBrush" Value="White"/><Setter TargetName="SwitchTrack" Property="BorderThickness" Value="2"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="Expander">
+   <Setter Property="Foreground" Value="{StaticResource AutoMuted}"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Expander"><StackPanel>
+    <ToggleButton IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}" Content="{TemplateBinding Header}" Foreground="{StaticResource AutoMuted}" Cursor="Hand" HorizontalContentAlignment="Left">
+     <ToggleButton.ContentTemplate><DataTemplate><TextBlock Text="{Binding}" Foreground="{StaticResource AutoMuted}"/></DataTemplate></ToggleButton.ContentTemplate>
+     <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border x:Name="DisclosureSurface" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="6" Padding="0,6">
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="20"/></Grid.ColumnDefinitions><ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"/>
+       <Path x:Name="DisclosureArrow" Grid.Column="1" Data="M 0,0 L 4,4 L 8,0" Stroke="{StaticResource AutoMuted}" StrokeThickness="1.5" Width="8" Height="5" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5"><Path.RenderTransform><RotateTransform Angle="0"/></Path.RenderTransform></Path>
+      </Grid></Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsChecked" Value="True"><Setter TargetName="DisclosureArrow" Property="RenderTransform"><Setter.Value><RotateTransform Angle="180"/></Setter.Value></Setter></Trigger>
+       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="DisclosureSurface" Property="Background" Value="#182F263F"/></Trigger>
+       <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="DisclosureSurface" Property="BorderBrush" Value="{StaticResource AutoViolet}"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate></ToggleButton.Template>
+    </ToggleButton>
+    <ContentPresenter x:Name="DisclosureContent" Visibility="Collapsed" Margin="0,10,0,0"/>
+   </StackPanel><ControlTemplate.Triggers><Trigger Property="IsExpanded" Value="True"><Setter TargetName="DisclosureContent" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="ScrollBar"><Setter Property="Width" Value="6"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+   <Track x:Name="PART_Track" IsDirectionReversed="True">
+    <Track.DecreaseRepeatButton><RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>
+    <Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="#645174" CornerRadius="3" Margin="1,0"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
+    <Track.IncreaseRepeatButton><RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>
+   </Track>
+  </ControlTemplate></Setter.Value></Setter></Style>
+  <Style TargetType="ProgressBar"><Setter Property="Height" Value="5"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ProgressBar"><Grid><Border x:Name="PART_Track" Background="#352C44" CornerRadius="3"/><Border x:Name="PART_Indicator" Background="{StaticResource AutoMint}" CornerRadius="3" HorizontalAlignment="Left"/></Grid></ControlTemplate></Setter.Value></Setter></Style>
+ </UserControl.Resources>
+ <ScrollViewer x:Name="DashboardScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
+  <StackPanel Margin="22,20,22,24">
+   <Grid Margin="0,0,0,20"><Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <Border Width="38" Height="38" CornerRadius="12" Background="#29203F" BorderBrush="#66507C" BorderThickness="1" HorizontalAlignment="Left"><Grid Width="22" Height="22"><Ellipse Width="12" Height="12" Stroke="{StaticResource AutoMint}" StrokeThickness="1.5"/><Path Data="M 11,0 L 11,6 M 11,16 L 11,22 M 0,11 L 6,11 M 16,11 L 22,11" Stroke="{StaticResource AutoMint}" StrokeThickness="1.5"/><Ellipse Width="3" Height="3" Fill="{StaticResource AutoMint}"/></Grid></Border>
+    <StackPanel Grid.Column="1"><TextBlock Text="AutoAimmy" FontSize="25" FontWeight="SemiBold" LineHeight="30"/><TextBlock Text="Votre espace de progression" Style="{StaticResource MutedText}"/></StackPanel>
+    <Border Grid.Column="2" Background="#251C36" BorderBrush="#443452" BorderThickness="1" CornerRadius="8" Padding="9,4" VerticalAlignment="Top" Margin="8,4,0,0"><TextBlock x:Name="VersionText" FontSize="10" Foreground="{StaticResource AutoViolet}"/></Border>
+   </Grid>
+   <Border Style="{StaticResource Card}" BorderBrush="#605B427F" Padding="20,18">
+    <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#302143" Offset="0"/><GradientStop Color="#1C172C" Offset="0.7"/><GradientStop Color="#182B29" Offset="1"/></LinearGradientBrush></Border.Background>
+    <StackPanel>
+     <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="VOTRE SESSION R6" Style="{StaticResource Caption}" Foreground="#CBBAE8" VerticalAlignment="Center"/><Border Grid.Column="1" Background="#282439" CornerRadius="12" Padding="10,4" Margin="8,0,0,0"><StackPanel Orientation="Horizontal"><Ellipse x:Name="StatusDot" Fill="{StaticResource AutoViolet}" Width="5" Height="5" VerticalAlignment="Center" Margin="0,0,6,0"/><TextBlock x:Name="StatusBadgeText" Text="Prêt" FontSize="10" LineHeight="14" Foreground="{StaticResource AutoViolet}"/></StackPanel></Border></Grid>
+     <TextBlock x:Name="ObservationTitle" FontSize="22" FontWeight="SemiBold" LineHeight="29"/>
+     <TextBlock x:Name="ObservationDetail" Style="{StaticResource MutedText}" Margin="0,6,0,0"/>
+     <TextBlock x:Name="ModelText" FontSize="11" Foreground="#C0B1D5" Margin="0,12,0,0"/>
+     <TextBlock x:Name="OutputModeText" Style="{StaticResource MutedText}" FontSize="11" Margin="0,3,0,0"/>
+    </StackPanel>
+   </Border>
+   <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+    <Border Style="{StaticResource Card}" Padding="14,12" CornerRadius="12" Margin="0,0,8,0"><StackPanel><TextBlock Text="COLLECTE" Style="{StaticResource Caption}"/><TextBlock x:Name="CaptureSummaryText" Text="En attente" FontSize="17" FontWeight="SemiBold" LineHeight="24" Margin="0,5,0,0"/><TextBlock x:Name="CaptureCountText" Text="0 image" Style="{StaticResource MutedText}" FontSize="10"/></StackPanel></Border>
+    <Border Grid.Column="1" Style="{StaticResource Card}" Padding="14,12" CornerRadius="12" Margin="0,0,8,0"><StackPanel><TextBlock Text="CALIBRATION" Style="{StaticResource Caption}"/><TextBlock x:Name="CalibrationSummaryText" Text="À faire" FontSize="17" FontWeight="SemiBold" LineHeight="24" Margin="0,5,0,0"/><TextBlock Text="Réponse de la caméra" Style="{StaticResource MutedText}" FontSize="10"/></StackPanel></Border>
+    <Border Grid.Column="2" Style="{StaticResource Card}" Padding="14,12" CornerRadius="12" Margin="0"><StackPanel><TextBlock Text="SOUS-PROFILS" Style="{StaticResource Caption}"/><TextBlock x:Name="ProfilesSummaryText" Text="0" FontSize="17" FontWeight="SemiBold" LineHeight="24" Foreground="{StaticResource AutoMint}" Margin="0,5,0,0"/><TextBlock Text="Situations observées" Style="{StaticResource MutedText}" FontSize="10"/></StackPanel></Border>
+   </Grid>
+   <Border Style="{StaticResource Card}"><StackPanel>
+    <DockPanel><Border Background="#29203C" CornerRadius="7" Padding="7,3" DockPanel.Dock="Left" Margin="0,0,10,0"><TextBlock Text="01" Foreground="{StaticResource AutoViolet}" FontWeight="SemiBold" FontSize="11"/></Border><TextBlock Text="Jouer et observer" Style="{StaticResource SectionTitle}"/></DockPanel>
+    <TextBlock Text="Chargez votre modèle, calibrez votre vue, puis testez contre les IA." Style="{StaticResource MutedText}" Margin="0,6,0,14"/>
+    <Border Background="#1D293D" CornerRadius="9" Padding="12,10" Margin="0,0,0,14"><TextBlock x:Name="LocalStatusText" Foreground="#CEC3E2"/></Border>
+    <WrapPanel><Button x:Name="StartLocalButton" Content="Démarrer la session" Click="StartLocal_Click"/><Button x:Name="CalibrateLocalButton" Style="{StaticResource PrimaryButton}" Content="Calibrer ma vue" ToolTip="Calibration guidée : 45 secondes maximum, sans marcher ni tirer." Click="CalibrateLocal_Click"/><Button x:Name="AssistLocalButton" Style="{StaticResource AssistButton}" Content="Activer l’assistance" Click="AssistLocal_Click"/><Button x:Name="StopLocalButton" Style="{StaticResource QuietButton}" Content="Arrêter la session" Click="StopLocal_Click"/></WrapPanel>
+    <Border Background="#181725" CornerRadius="9" Padding="12" Margin="0,6,0,12"><CheckBox x:Name="AutoCaptureToggle" Content="Enregistrer automatiquement mes sessions R6" IsChecked="True"/></Border>
+    <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border CornerRadius="5" Background="#30263D" Padding="7,2" VerticalAlignment="Top" Margin="0,0,8,0"><TextBlock Text="F8" FontSize="10" FontWeight="SemiBold"/></Border><TextBlock Grid.Column="1" Text="Arrêter l’assistance à tout moment. La reprise attend une mesure cohérente de la vue." Style="{StaticResource MutedText}" FontSize="11"/></Grid>
+    <Expander Header="Suivi, profils et enregistrements"><StackPanel>
+     <TextBlock x:Name="LocalProfileText"/><TextBlock x:Name="LocalCaptureText" Style="{StaticResource MutedText}" Margin="0,8,0,0"/><TextBlock x:Name="SceneStatusText" Style="{StaticResource MutedText}" Margin="0,8,0,0"/><TextBlock x:Name="GameplayStatusText" Style="{StaticResource MutedText}" Margin="0,8,0,12"/>
+     <Button Content="Voir les enregistrements" Click="OpenRecordings_Click" HorizontalAlignment="Left"/>
+     <TextBlock Text="Capture locale à 5 images/s. Limites : 512 Mo par session et 2 Go au total. Les profils utilisent la taille et le mouvement à l’écran." Style="{StaticResource MutedText}" FontSize="11"/>
+    </StackPanel></Expander>
+   </StackPanel></Border>
+   <Border Style="{StaticResource Card}"><StackPanel>
+    <DockPanel><Border Background="#1D3A31" CornerRadius="7" Padding="7,3" DockPanel.Dock="Left" Margin="0,0,10,0"><TextBlock Text="02" Foreground="{StaticResource AutoMint}" FontWeight="SemiBold" FontSize="11"/></Border><TextBlock Text="Améliorer votre détecteur" Style="{StaticResource SectionTitle}"/></DockPanel>
+    <TextBlock Text="Vos exemples vérifiés permettent de comparer les réglages et les modèles sur ce PC." Style="{StaticResource MutedText}" Margin="0,6,0,16"/>
+    <Grid Margin="0,0,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="EXEMPLES VÉRIFIÉS" Style="{StaticResource Caption}" VerticalAlignment="Center"/><TextBlock x:Name="ReviewCountText" Grid.Column="1" Text="0 / 40" Foreground="{StaticResource AutoMint}" FontWeight="SemiBold" FontSize="16"/></Grid>
+    <ProgressBar x:Name="ReviewProgress" Maximum="40" Value="0" AutomationProperties.Name="Images vérifiées sur les 40 requises"/>
+    <TextBlock Text="Première comparaison : 40 images vérifiées, réparties sur deux sessions." Style="{StaticResource MutedText}" FontSize="11" Margin="0,8,0,10"/>
+    <TextBlock x:Name="LearningStatusText" Margin="0,0,0,12"/>
+    <WrapPanel><Button x:Name="ReviewLearningButton" Style="{StaticResource PrimaryButton}" Content="Vérifier mes images" Click="ReviewLearning_Click"/><Button x:Name="CancelTrainingButton" Style="{StaticResource QuietButton}" Content="Annuler le calcul" Click="CancelTraining_Click"/></WrapPanel>
+    <Border Background="#181725" CornerRadius="9" Padding="12" Margin="0,6,0,0"><StackPanel><CheckBox x:Name="AutoLearningToggle" Content="Apprendre automatiquement pendant mes pauses hors du jeu" IsChecked="True"/><TextBlock x:Name="AutomaticLearningStatusText" Style="{StaticResource Message}"/></StackPanel></Border>
+    <TextBlock x:Name="LearningActionText" Style="{StaticResource Message}"/><TextBlock x:Name="TrainingStatusText" Style="{StaticResource Message}"/>
+    <Expander Header="Comparaisons et entraînement avancés" Margin="0,14,0,0"><StackPanel>
+     <TextBlock Text="L’application compare les résultats sur des sessions séparées et conserve un candidat seulement si les mesures montrent un progrès." Style="{StaticResource MutedText}" Margin="0,0,0,12"/>
+     <WrapPanel><Button x:Name="OptimizeLearningButton" Content="Optimiser la détection" Click="OptimizeLearning_Click"/><Button x:Name="CompareModelButton" Content="Comparer un ONNX" Click="CompareModel_Click"/><Button x:Name="RollbackModelButton" Style="{StaticResource QuietButton}" Content="Modèle précédent" Click="RollbackModel_Click"/></WrapPanel>
+     <WrapPanel Margin="0,6,0,0"><Button x:Name="StartTrainingButton" Content="Entraîner localement" Click="StartTraining_Click"/><Button x:Name="ImportTrainingButton" Style="{StaticResource QuietButton}" Content="Alternative : importer un .pt" Click="ImportTraining_Click"/></WrapPanel>
+     <TextBlock Text="Le moteur local se prépare automatiquement au premier entraînement. Un import .pt est facultatif ; utilisez uniquement des poids de confiance, car ces fichiers peuvent contenir du code." Style="{StaticResource MutedText}" FontSize="11"/>
+    </StackPanel></Expander>
+   </StackPanel></Border>
+   <Border Style="{StaticResource Card}"><StackPanel>
+    <TextBlock Text="Vos réglages R6" Style="{StaticResource SectionTitle}"/>
+    <TextBlock x:Name="ImportTitle" Foreground="{StaticResource AutoViolet}" FontWeight="SemiBold" Margin="0,10,0,6"/><TextBlock x:Name="SettingsText"/>
+    <StackPanel x:Name="AccountChoicePanel" Visibility="Collapsed" Margin="0,12,0,0"><TextBlock Text="Choisissez votre configuration sauvegardée, sans retaper les réglages." Style="{StaticResource MutedText}"/><ComboBox x:Name="AccountChoices" DisplayMemberPath="Label" Margin="0,8,0,10" MinHeight="32"/><Button x:Name="SelectAccountButton" Content="Utiliser ces réglages" Click="SelectAccount_Click" HorizontalAlignment="Left"/></StackPanel>
+    <WrapPanel Margin="0,14,0,0"><Button x:Name="RefreshSettingsButton" Content="Relire les réglages" Click="RefreshSettings_Click"/><Button Style="{StaticResource QuietButton}" Content="Ouvrir les modèles" Click="OpenModels_Click"/></WrapPanel>
+    <TextBlock x:Name="ActionMessage" Style="{StaticResource Message}"/>
+    <Expander Header="Source des réglages et sensibilités ADS" Margin="0,8,0,0"><StackPanel><TextBlock x:Name="ImportDetail" Style="{StaticResource MutedText}"/><TextBlock x:Name="AdsText" Margin="0,8,0,0"/><TextBlock x:Name="UnknownText" Style="{StaticResource MutedText}" FontSize="11" Margin="0,8,0,0"/></StackPanel></Expander>
+    <Expander Header="Lecture du jeu · expérimental" Margin="0,6,0,0"><StackPanel>
+     <TextBlock x:Name="LiveStatusText"/><TextBlock x:Name="LiveValuesText" Margin="0,8,0,0"/><TextBlock x:Name="LiveDetailText" Style="{StaticResource MutedText}" Margin="0,8,0,0"/>
+     <TextBlock Text="Les DPI ne sont pas lisibles dans l’image du jeu. La reconnaissance des icônes d’arme, de lunette et de l’état ADS reste à valider." Style="{StaticResource MutedText}" FontSize="11" Margin="0,8,0,12"/>
+     <Button x:Name="ValidationCaptureButton" Content="Collecter 20 images de validation" Click="StartValidation_Click" HorizontalAlignment="Left"/><TextBlock x:Name="ValidationCaptureText" Style="{StaticResource Message}"/>
+    </StackPanel></Expander>
+   </StackPanel></Border>
+   <Border Style="{StaticResource Card}" Margin="0"><StackPanel>
+    <TextBlock Text="Votre prochaine étape" Style="{StaticResource SectionTitle}"/><TextBlock x:Name="NextStepText" Style="{StaticResource MutedText}" Margin="0,8,0,12"/>
+    <Expander Header="Rapports et exports locaux"><StackPanel><TextBlock x:Name="ReportText" Style="{StaticResource MutedText}" Margin="0,0,0,12"/><WrapPanel><Button Content="Ouvrir les rapports" Click="OpenReports_Click"/><Button x:Name="LatestReportButton" Style="{StaticResource QuietButton}" Content="Afficher le dernier ZIP" Click="ShowLatestReport_Click"/></WrapPanel></StackPanel></Expander>
+    <Border Height="1" Background="#34293F" Margin="0,14,0,12"/><TextBlock Text="Sur votre PC · Aucun rapport ou enregistrement envoyé automatiquement" Style="{StaticResource Caption}" FontWeight="Normal"/>
+   </StackPanel></Border>
+  </StackPanel>
+ </ScrollViewer>
 </UserControl>
