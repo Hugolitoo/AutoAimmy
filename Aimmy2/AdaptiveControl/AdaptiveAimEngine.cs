@@ -2,7 +2,7 @@ namespace Aimmy2.AdaptiveControl;
 
 /// <summary>
 /// Deterministic, bounded relative-movement controller. It never generates input itself.
-/// Profiles summarize screen-space evidence; no metric claims a hit, true distance or recoil correction.
+/// Profiles summarize screen-space evidence; recoil feedforward is an independently supplied estimate.
 /// </summary>
 public sealed class AdaptiveAimEngine
 {
@@ -16,6 +16,13 @@ public sealed class AdaptiveAimEngine
     private long lastTrackId;
     private double previousErrorX, previousErrorY;
     private bool previousAssisted;
+    private double cameraVelocityX, cameraVelocityY;
+    private readonly Dictionary<string, ContextTuner> tuners = new(StringComparer.Ordinal);
+    private string tuningContext = "";
+    private long tuningTrack;
+    private double tuningStarted, tuningError, tuningSeconds;
+    private int tuningCrossings;
+    private TuningParameters? trial;
     private int gainMismatchCount;
     private bool calibrationSuspended;
     private readonly Dictionary<string, int> crossingWindows = new(StringComparer.Ordinal);
@@ -40,7 +47,7 @@ public sealed class AdaptiveAimEngine
         }
     }
 
-    public CalibrationResult? Calibration => calibration;
+    public CalibrationResult? Calibration => calibrationSuspended ? null : calibration;
     public IReadOnlyList<TargetTrack> VisibleTracks => tracker.VisibleTracks;
 
     public void SetCalibration(CalibrationResult result)
@@ -82,7 +89,14 @@ public sealed class AdaptiveAimEngine
         { ClearMovement(); return Decision(null, 0, 0, "NoCurrentTarget", calibrated); }
 
         if (target.Id != lastTrackId) { ClearMovement(); lastTrackId = target.Id; }
-        string proposed = Classify(target, frame.ScreenHeight);
+        bool sceneReliable = frame.SceneMotionReliable && double.IsFinite(frame.SceneVelocityX) && double.IsFinite(frame.SceneVelocityY);
+        double cameraBlend = 1 - Math.Exp(-Math.Clamp(dt, 0, .1) / .055);
+        cameraVelocityX = sceneReliable ? cameraVelocityX + cameraBlend * (frame.SceneVelocityX - cameraVelocityX) : 0;
+        cameraVelocityY = sceneReliable ? cameraVelocityY + cameraBlend * (frame.SceneVelocityY - cameraVelocityY) : 0;
+        var relative = sceneReliable ? target with { VelocityX = target.VelocityX - cameraVelocityX, VelocityY = target.VelocityY - cameraVelocityY } : target;
+        string proposed = Classify(relative, frame.ScreenHeight);
+        if (sceneReliable && target.ConsecutiveFrames >= 12 && target.AgeSeconds >= .5)
+            proposed = FindAdaptiveContext(relative, frame.ScreenHeight, proposed);
         if (proposed != candidateContext || double.IsNaN(candidateSince)) { candidateContext = proposed; candidateSince = frame.TimeSeconds; }
         if (context != proposed && frame.TimeSeconds - candidateSince >= .25) context = proposed;
         var profile = profiles[context];
@@ -93,9 +107,16 @@ public sealed class AdaptiveAimEngine
 
         double errorX = target.Detection.X - frame.CenterX;
         double errorY = target.Detection.Y + (options.AimPointHeightFraction - .5) * target.Detection.Height - frame.CenterY;
+        double observedError = AdaptiveTargetTracker.Distance(errorX, errorY) / Math.Max(4, Math.Min(target.Detection.Width, target.Detection.Height) / 2);
+        if (sceneReliable && target.ConsecutiveFrames >= 6 && target.Detection.Confidence >= .7)
+        {
+            // Short, bounded anticipation uses target motion after background compensation.
+            errorX += Math.Clamp(relative.VelocityX * .035, -20, 20);
+            errorY += Math.Clamp(relative.VelocityY * .035, -20, 20);
+        }
         double radius = Math.Max(4, Math.Min(target.Detection.Width, target.Detection.Height) / 2);
         double errorNorm = Math.Min(50, AdaptiveTargetTracker.Distance(errorX, errorY) / radius);
-        double normalizedSpeed = Math.Min(20, target.SpeedPixelsPerSecond / frame.ScreenHeight);
+        double normalizedSpeed = Math.Min(20, relative.SpeedPixelsPerSecond / frame.ScreenHeight);
         double weight = 1.0 / Math.Min(20000, profile.ObservationFrames + 1);
         profile = profile with
         {
@@ -109,6 +130,7 @@ public sealed class AdaptiveAimEngine
         if (!calibrated || !frame.OutputAllowed || !frame.ActivationHeld || target.ConsecutiveFrames < 3 || discontinuity)
         {
             ClearMovement();
+            trial = null; tuningContext = "";
             string status = calibrationSuspended ? "CameraGainChangedRecalibrate" : !calibrated ? "CalibrationRequiredForThisView" :
                 !frame.OutputAllowed ? "ObservationOnly" : !frame.ActivationHeld ? "WaitingForActivation" : "ConfirmingTarget";
             return Decision(target, 0, 0, status, calibrated);
@@ -118,6 +140,31 @@ public sealed class AdaptiveAimEngine
         bool crossing = previousAssisted &&
             ((Math.Abs(previousErrorX) > deadzone && Math.Abs(errorX) > deadzone && Math.Sign(previousErrorX) != Math.Sign(errorX)) ||
              (Math.Abs(previousErrorY) > deadzone && Math.Abs(errorY) > deadzone && Math.Sign(previousErrorY) != Math.Sign(errorY)));
+        if (sceneReliable && target.Detection.Confidence >= .7)
+        {
+            if (!tuners.TryGetValue(context, out var tuner)) tuners[context] = tuner = new ContextTuner();
+            if (trial == null || tuningContext != context || tuningTrack != target.Id)
+            {
+                trial = tuner.BeginWindow(profile.Gain, profile.SmoothingSeconds);
+                tuningContext = context; tuningTrack = target.Id; tuningStarted = frame.TimeSeconds;
+                tuningError = tuningSeconds = 0; tuningCrossings = 0;
+            }
+            tuningError += Math.Min(50, observedError) * safeDt; tuningSeconds += safeDt;
+            if (crossing) tuningCrossings++;
+            gain = trial.Gain; smoothing = trial.Smoothing;
+            if (frame.TimeSeconds - tuningStarted >= .8 && tuningSeconds >= .7)
+            {
+                var result = tuner.EndWindow(tuningError / tuningSeconds, tuningCrossings);
+                if (result.Completed)
+                {
+                    profile = profile with { Gain = result.Gain, SmoothingSeconds = result.Smoothing,
+                        ComparedWindows = profile.ComparedWindows + result.Windows,
+                        AdjustmentEvidence = result.Accepted ? "MeasuredRandomizedTrackingWindows" : profile.AdjustmentEvidence };
+                }
+                trial = null;
+            }
+        }
+        else { trial = null; tuningContext = ""; }
         int windowFrames = assistedWindows.GetValueOrDefault(context) + 1;
         int windowCrossings = crossingWindows.GetValueOrDefault(context) + (crossing ? 1 : 0);
         profile = profile with { AssistedFrames = profile.AssistedFrames + 1, ErrorSignCrossings = profile.ErrorSignCrossings + (crossing ? 1 : 0) };
@@ -125,7 +172,7 @@ public sealed class AdaptiveAimEngine
         // contribute, so this conservative response is explicitly not proof of improved player aim.
         if (windowFrames >= 60)
         {
-            if (windowCrossings >= 4)
+            if (!sceneReliable && windowCrossings >= 4)
                 profile = profile with { Gain = Math.Max(.06, profile.Gain * .9), SmoothingSeconds = Math.Min(.14, profile.SmoothingSeconds + .005),
                     AdjustmentEvidence = "RepeatedScreenErrorCrossingsDuringAssistance_CausalityUnverified" };
             windowFrames = windowCrossings = 0;
@@ -137,18 +184,26 @@ public sealed class AdaptiveAimEngine
 
         double rateX = Math.Abs(errorX) <= deadzone ? 0 : -errorX / calibration!.PixelsPerCountX * gain * 60;
         double rateY = Math.Abs(errorY) <= deadzone ? 0 : -errorY / calibration!.PixelsPerCountY * gain * 60;
+        // Recoil feedforward is only allowed on a stable, confident nearby target with current
+        // background registration. A stale HUD estimate alone can never generate movement.
+        double recoilRate = sceneReliable && target.ConsecutiveFrames >= 6 && target.Detection.Confidence >= .8 &&
+            observedError <= 1.5 && double.IsFinite(frame.RecoilPixelsPerSecondY) && frame.RecoilPixelsPerSecondY > 0
+            ? Math.Clamp(-Math.Min(frame.RecoilPixelsPerSecondY, frame.ScreenHeight * .2) / calibration!.PixelsPerCountY,
+                -options.MaximumCountsPerSecond * .35, options.MaximumCountsPerSecond * .35) : 0;
         double alpha = 1 - Math.Exp(-safeDt / Math.Max(.015, smoothing));
         filteredRateX += alpha * (rateX - filteredRateX);
         filteredRateY += alpha * (rateY - filteredRateY);
         if (rateX == 0 || Math.Sign(filteredRateX) != Math.Sign(rateX)) { filteredRateX = 0; residualX = 0; }
-        if (rateY == 0 || Math.Sign(filteredRateY) != Math.Sign(rateY)) { filteredRateY = 0; residualY = 0; }
-        double rateNorm = AdaptiveTargetTracker.Distance(filteredRateX, filteredRateY);
+        if (rateY == 0 || Math.Sign(filteredRateY) != Math.Sign(rateY)) { filteredRateY = 0; if (recoilRate == 0) residualY = 0; }
+        double rateNorm = AdaptiveTargetTracker.Distance(filteredRateX, filteredRateY + recoilRate);
         double scale = rateNorm > options.MaximumCountsPerSecond ? options.MaximumCountsPerSecond / rateNorm : 1;
         double proposedX = filteredRateX * scale * safeDt + residualX;
         double proposedY = filteredRateY * scale * safeDt + residualY;
         // Never cross the estimated remaining target error in one output step.
         proposedX = Math.Clamp(proposedX, -Math.Abs(errorX / calibration!.PixelsPerCountX), Math.Abs(errorX / calibration.PixelsPerCountX));
-        proposedY = Math.Clamp(proposedY, -Math.Abs(errorY / calibration.PixelsPerCountY), Math.Abs(errorY / calibration.PixelsPerCountY));
+        // Retain fractional feedforward at the aim point while clamping only the feedback term.
+        proposedY = Math.Clamp(filteredRateY * scale * safeDt, -Math.Abs(errorY / calibration.PixelsPerCountY), Math.Abs(errorY / calibration.PixelsPerCountY)) + residualY;
+        proposedY += recoilRate * scale * safeDt;
         double norm = AdaptiveTargetTracker.Distance(proposedX, proposedY);
         if (norm > options.MaximumCountsPerFrame)
         { proposedX *= options.MaximumCountsPerFrame / norm; proposedY *= options.MaximumCountsPerFrame / norm; }
@@ -172,6 +227,8 @@ public sealed class AdaptiveAimEngine
         tracker.Reset();
         lastTime = double.NaN;
         lastTrackId = 0;
+        cameraVelocityX = cameraVelocityY = 0;
+        trial = null; tuningContext = "";
         candidateContext = context;
         candidateSince = double.NaN;
         ClearMovement();
@@ -190,6 +247,34 @@ public sealed class AdaptiveAimEngine
         double speed = target.SpeedPixelsPerSecond / screenHeight;
         var motion = speed < .08 ? ScreenMotion.Slow : speed > .55 ? ScreenMotion.Fast : ScreenMotion.Moving;
         return $"{size}/{motion}";
+    }
+
+    private string FindAdaptiveContext(TargetTrack target, double screenHeight, string fallback)
+    {
+        double size = Math.Clamp(target.Detection.Height / screenHeight, .001, 2);
+        double speed = Math.Clamp(target.SpeedPixelsPerSecond / screenHeight, 0, 20);
+        double horizontal = Math.Abs(target.VelocityX) / Math.Max(1, Math.Abs(target.VelocityX) + Math.Abs(target.VelocityY));
+        double Distance(ContextProfile p) => .8 * Math.Abs(Math.Log((size + .01) / (p.SizeFeature + .01))) +
+            .35 * Math.Abs(Math.Log((speed + .02) / (p.SpeedFeature + .02))) + .6 * Math.Abs(horizontal - p.HorizontalFeature);
+        var closest = profiles.Values.Where(p => p.Key.StartsWith("Adaptive/", StringComparison.Ordinal)).MinBy(Distance);
+        if (closest == null || Distance(closest) > .75)
+        {
+            if (profiles.Count >= 36) return closest?.Key ?? fallback;
+            string key = "Adaptive/" + (profiles.Values.Count(p => p.Key.StartsWith("Adaptive/", StringComparison.Ordinal)) + 1).ToString("00");
+            closest = profiles[fallback] with { Key = key, SizeFeature = size, SpeedFeature = speed,
+                HorizontalFeature = horizontal, FeatureSamples = 1, ObservationFrames = 0, ObservedSeconds = 0,
+                AssistedFrames = 0, ErrorSignCrossings = 0, ComparedWindows = 0, AdjustmentEvidence = "ConservativeDefault" };
+        }
+        else
+        {
+            double weight = 1.0 / Math.Min(10000, closest.FeatureSamples + 1);
+            closest = closest with { SizeFeature = closest.SizeFeature + weight * (size - closest.SizeFeature),
+                SpeedFeature = closest.SpeedFeature + weight * (speed - closest.SpeedFeature),
+                HorizontalFeature = closest.HorizontalFeature + weight * (horizontal - closest.HorizontalFeature),
+                FeatureSamples = closest.FeatureSamples + 1 };
+        }
+        profiles[closest.Key] = closest;
+        return closest.Key;
     }
 
     private static ContextProfile CreateDefault(ApparentSize size, ScreenMotion motion) => new()

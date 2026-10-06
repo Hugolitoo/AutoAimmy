@@ -56,7 +56,7 @@ public sealed class LocalCaptureRecorder : IAsyncDisposable
 
     public bool TryRecord(Bitmap bitmap, DateTime capturedUtc, string kind, Rectangle captureBounds,
         IReadOnlyList<LocalDetectionBox> detections, string? modelName = null,
-        DateTime? detectionsCapturedUtc = null, Rectangle? detectionBounds = null)
+        DateTime? detectionsCapturedUtc = null, Rectangle? detectionBounds = null, LocalVisualCue? visualCue = null)
     {
         if (kind is not ("FullGame" or "DetectionCrop")) throw new ArgumentOutOfRangeException(nameof(kind));
         if (bitmap.Width <= 0 || bitmap.Height <= 0 || captureBounds.Width <= 0 || captureBounds.Height <= 0) return false;
@@ -71,6 +71,7 @@ public sealed class LocalCaptureRecorder : IAsyncDisposable
                 box.X >= 0 && box.Y >= 0 && box.Width > 0 && box.Height > 0 && box.X + box.Width <= sourceWidth + 1 &&
                 box.Y + box.Height <= sourceHeight + 1 && box.Confidence is >= 0 and <= 1 && box.ClassId >= 0).ToArray();
             string reason = valid.Length == 0 ? "NoPrediction" : valid.All(b => b.Confidence >= .8) ? "ConfidentPrediction" : "LowConfidenceOrUncertain";
+            if (visualCue?.ProbableHeadMarker == true || visualCue?.ProbableBlood == true) reason = "UnverifiedVisualCue";
             long next = Interlocked.Increment(ref sequence);
             string image = $"images/{(kind == "FullGame" ? "full" : "detection")}-{next:D7}.jpg";
             var meta = new LocalCaptureFrame(next, capturedUtc, kind, image, bitmap.Width, bitmap.Height,
@@ -78,7 +79,7 @@ public sealed class LocalCaptureRecorder : IAsyncDisposable
                 string.IsNullOrWhiteSpace(modelName) ? null : Path.GetFileName(modelName)[..Math.Min(180, Path.GetFileName(modelName).Length)],
                 Volatile.Read(ref latestInput), detectionsCapturedUtc,
                 detectionBounds.HasValue ? LocalCaptureBounds.From(detectionBounds.Value) : null,
-                detectionsCapturedUtc.HasValue ? (capturedUtc - detectionsCapturedUtc.Value).TotalMilliseconds : null);
+                detectionsCapturedUtc.HasValue ? (capturedUtc - detectionsCapturedUtc.Value).TotalMilliseconds : null, visualCue);
             Bitmap? clone = null;
             try
             {

@@ -24,6 +24,13 @@ try {
     $learningDirectory = Join-Path $publishDirectory 'local-learning'
     $null = New-Item -ItemType Directory -Path $learningDirectory -Force
     Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\local-learning\runner.py') -Destination $learningDirectory
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\local-learning\recover_onnx.py') -Destination $learningDirectory
+    $runtimeManifest = Join-Path $projectRoot 'distribution\learning-runtime.json'
+    if (Test-Path -LiteralPath $runtimeManifest) {
+        Copy-Item -LiteralPath $runtimeManifest -Destination $publishDirectory
+        $runtimeArchive = Join-Path $projectRoot 'artifacts\learning-runtime-package\AutoAimmy-learning-win-x64.zip'
+        if (Test-Path -LiteralPath $runtimeArchive) { Copy-Item -LiteralPath $runtimeArchive -Destination $releaseRoot }
+    }
     foreach ($file in @('LICENSE','SourceAvailable.md')) { Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $publishDirectory }
     [ordered]@{ Product='AutoAimmy'; Version=$Version; Channel=$Channel; Runtime='win-x64'; ObservationOnly=$false; DefaultMode='Observation'; ExperimentalCalibratedAssistance=$true; LocalOnlyAnalysis=$true } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $publishDirectory 'release.json') -Encoding UTF8

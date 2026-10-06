@@ -62,15 +62,38 @@ public sealed class TrainingJobCoordinator
             if (!File.Exists(activeModelPath)) { Block("ActiveModelMissing", "Chargez un modèle ONNX."); return; }
             var modelHash = await Task.Run(() => ModelLearningCoordinator.HashFile(activeModelPath), cancellation.Token);
             var trustPath = Path.Combine(_root, "trusted-sources", modelHash + ".json");
-            if (!File.Exists(trustPath)) { Block("SourceWeightsTrustRequired", "Sélectionnez les poids source .pt de confiance correspondant au modèle ONNX."); return; }
+            if (File.Exists(trustPath))
+            {
+                var registered = JsonSerializer.Deserialize<TrustedTrainingSource>(await File.ReadAllTextAsync(trustPath, cancellation.Token));
+                if (registered == null || registered.ModelSha256 != modelHash || !File.Exists(registered.SourcePath) ||
+                    registered.SourcePath != Path.Combine(_root, "source", registered.SourceSha256 + ".pt") ||
+                    ModelLearningCoordinator.HashFile(registered.SourcePath) != registered.SourceSha256)
+                { Block("SourceWeightsChanged", "Les poids source ont changé ; sélectionnez à nouveau le fichier de confiance."); return; }
+            }
+            var python = DiscoverPython();
+            if (python == null) { Block("PythonRuntimeMissing", "Le moteur d’apprentissage local n’est pas encore préparé."); return; }
+            var runner = Path.Combine(AppContext.BaseDirectory, "local-learning", "runner.py");
+            if (!File.Exists(runner)) { Block("PackagedRunnerMissing", "Le module d'entraînement local n'est pas présent dans cette installation."); return; }
+            if (!File.Exists(trustPath))
+            {
+                Set(new("Recovering", "Reconstruction locale des poids ONNX, avec vérification des sorties avant utilisation…", []));
+                string recoveryRoot = Path.Combine(_root, "recovered-sources", modelHash + "-" + Guid.NewGuid().ToString("N")[..8]);
+                Directory.CreateDirectory(Path.GetDirectoryName(recoveryRoot)!);
+                var recovered = await RunPython(python, runner, ["--mode", "recover", "--onnx", activeModelPath, "--output", recoveryRoot], cancellation.Token);
+                using var recovery = LastJsonLine(recovered.Output);
+                if (recovered.ExitCode != 0 || recovery == null || recovery.RootElement.GetProperty("Status").GetString() != "RecoveredEquivalentWeights")
+                { Block("SourceRecoveryUnsupported", "Cet export ne peut pas être reconstruit automatiquement. Les poids .pt d’origine restent une alternative."); return; }
+                string recoveredWeights = recovery.RootElement.GetProperty("WeightsPath").GetString()!;
+                if (!Path.GetFullPath(recoveredWeights).StartsWith(Path.GetFullPath(recoveryRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                    recovery.RootElement.GetProperty("SourceOnnxSha256").GetString() != modelHash ||
+                    ModelLearningCoordinator.HashFile(recoveredWeights) != recovery.RootElement.GetProperty("WeightsSha256").GetString())
+                    throw new InvalidDataException("Recovered weights failed provenance checks.");
+                RegisterDerivedSource(activeModelPath, recoveredWeights, modelHash, "OwnedValidatedOnnxRecovery");
+            }
             var source = JsonSerializer.Deserialize<TrustedTrainingSource>(await File.ReadAllTextAsync(trustPath, cancellation.Token));
             if (source == null || source.ModelSha256 != modelHash || !File.Exists(source.SourcePath) ||
                 source.SourcePath != Path.Combine(_root, "source", source.SourceSha256 + ".pt") || ModelLearningCoordinator.HashFile(source.SourcePath) != source.SourceSha256)
             { Block("SourceWeightsChanged", "Les poids source ont changé ; sélectionnez à nouveau le fichier de confiance."); return; }
-            var python = DiscoverPython();
-            if (python == null) { Block("PythonRuntimeMissing", "Python local est absent. L'entraînement nécessite aussi PyTorch, Ultralytics et ONNX ; aucun téléchargement automatique n'est effectué."); return; }
-            var runner = Path.Combine(AppContext.BaseDirectory, "local-learning", "runner.py");
-            if (!File.Exists(runner)) { Block("PackagedRunnerMissing", "Le module d'entraînement local n'est pas présent dans cette installation."); return; }
             var inspection = await RunPython(python, runner, ["--mode", "inspect", "--weights", source.SourcePath], cancellation.Token);
             var inspectJson = LastJsonLine(inspection.Output);
             if (inspection.ExitCode != 0 || inspectJson == null)
@@ -106,9 +129,18 @@ public sealed class TrainingJobCoordinator
             if (!Path.GetFullPath(candidate).StartsWith(Path.GetFullPath(output) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
                 ModelLearningCoordinator.HashFile(candidate) != result.RootElement.GetProperty("CandidateSha256").GetString())
                 throw new InvalidDataException("Invalid candidate output path or hash.");
+            string weights = result.RootElement.GetProperty("CandidateWeightsPath").GetString()!;
+            if (!Path.GetFullPath(weights).StartsWith(Path.GetFullPath(output) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Path.GetExtension(weights), ".pt", StringComparison.OrdinalIgnoreCase) ||
+                ModelLearningCoordinator.HashFile(weights) != result.RootElement.GetProperty("CandidateWeightsSha256").GetString())
+                throw new InvalidDataException("Invalid candidate training weights path or hash.");
             Set(new("Evaluating", "Comparaison du candidat et du modèle de départ sur une session indépendante…", [], candidate));
             try
             {
+                // Save the owned training source before changing model selection.
+                // A failed copy must leave the current model selected; a rejected
+                // candidate may retain its own source without becoming active.
+                RegisterDerivedSource(candidate, weights, source.SourceSha256);
                 var promoted = await Task.Run(() => learning.EvaluateAndPromote(dataset, activeModelPath, candidate, p => new OnnxLearningDetector(p), cancellation.Token), cancellation.Token);
                 Set(new("Accepted", "Candidat amélioré sur la validation locale, enregistré avec retour arrière. Il pourra être chargé à la prochaine session.", [], promoted.ActivePath));
             }
@@ -127,6 +159,22 @@ public sealed class TrainingJobCoordinator
     }
 
     public void Cancel() { lock (_gate) _cancellation?.Cancel(); }
+
+    private void RegisterDerivedSource(string modelPath, string weights, string parentSourceSha256, string origin = "OwnedOfflineTrainingJob")
+    {
+        var modelHash = ModelLearningCoordinator.HashFile(modelPath);
+        var weightHash = ModelLearningCoordinator.HashFile(weights);
+        Directory.CreateDirectory(Path.Combine(_root, "source"));
+        Directory.CreateDirectory(Path.Combine(_root, "trusted-sources"));
+        string saved = Path.Combine(_root, "source", weightHash + ".pt");
+        if (!File.Exists(saved)) File.Copy(weights, saved);
+        if (ModelLearningCoordinator.HashFile(saved) != weightHash) throw new InvalidDataException("Derived weights copy failed verification.");
+        string destination = Path.Combine(_root, "trusted-sources", modelHash + ".json");
+        string temporary = destination + ".tmp";
+        File.WriteAllText(temporary, JsonSerializer.Serialize(new { ModelSha256 = modelHash, SourcePath = saved,
+            SourceSha256 = weightHash, ParentSourceSha256 = parentSourceSha256, Origin = origin }));
+        File.Move(temporary, destination, true);
+    }
     private void Block(string blocker, string detail) => Set(new("Blocked", detail, [blocker]));
     private void Set(TrainingJobState state) { lock (_gate) _state = state; }
 

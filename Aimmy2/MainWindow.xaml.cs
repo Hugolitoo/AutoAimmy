@@ -100,6 +100,7 @@ namespace Aimmy2
 
                 // Continue with the rest of initialization
                 await InitializeApplicationAsync();
+                ((AutoAimmyMenuControl)GetOrCreateMenuControl("AutoAimmyMenu")).StartAutomaticWork();
                 UpdateAboutSpecs();
                 ApplyThemeGradients();
                 ThemeManager.LoadMediaSettings();
@@ -612,7 +613,7 @@ namespace Aimmy2
         {
             Aimmy2.LocalAutomation.SavedSettingsObserver.Instance.Dispose();
             if (_menuControls.TryGetValue("AutoAimmyMenu", out var localControl) && localControl is AutoAimmyMenuControl autoControl)
-                autoControl.StopBackgroundWork();
+                autoControl.ShutdownAutomaticWork();
             Aimmy2.LocalAutomation.LocalAutomationSession.Instance.Shutdown();
             Aimmy2.VisualAnalysis.LiveHudObserver.Instance.Dispose();
             if (_fileManager?.IsValueCreated == true)

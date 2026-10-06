@@ -23,8 +23,13 @@ public sealed record LocalCaptureOptions
 }
 
 public sealed record LocalDetectionBox(double X, double Y, double Width, double Height, double Confidence, int ClassId);
+public sealed record LocalVisualCue(bool ProbableHeadMarker, bool ProbableBlood, double MarkerStrength, double BloodIncrease,
+    string Evidence = "UnverifiedVisualCue");
 public sealed record LocalInputSample(DateTime CapturedUtc, double? RawDeltaX, double? RawDeltaY,
-    bool LeftPressed, bool? RightPressed = null, bool AssistanceEnabled = false);
+    bool LeftPressed, bool? RightPressed = null, bool AssistanceEnabled = false,
+    double? SceneDeltaX = null, double? SceneDeltaY = null, double? SceneConfidence = null,
+    double? SceneScale = null, double? SceneIntervalSeconds = null,
+    int GeneratedCountsX = 0, int GeneratedCountsY = 0, DateTime? GeneratedUtc = null);
 public sealed record LocalCaptureBounds(int X, int Y, int Width, int Height)
 {
     public static LocalCaptureBounds From(Rectangle rectangle) => new(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
@@ -33,7 +38,7 @@ public sealed record LocalCaptureFrame(long Sequence, DateTime CapturedUtc, stri
     int Width, int Height, LocalCaptureBounds CaptureBounds, IReadOnlyList<LocalDetectionBox> Detections,
     string LabelStatus, string SelectionReason, string? ModelName, LocalInputSample? LatestInput,
     DateTime? DetectionsCapturedUtc = null, LocalCaptureBounds? DetectionBounds = null,
-    double? DetectionTimeOffsetMilliseconds = null);
+    double? DetectionTimeOffsetMilliseconds = null, LocalVisualCue? VisualCue = null);
 public sealed record LocalCaptureState(bool Active = false, string Status = "Stopped", string? Directory = null,
     long FullFrames = 0, long CandidateFrames = 0, long ConfidentCandidates = 0, long HardCandidates = 0,
     long DroppedFrames = 0, long InputSamples = 0, long DroppedInputSamples = 0, long BytesWritten = 0,

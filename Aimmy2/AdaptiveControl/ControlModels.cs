@@ -21,7 +21,8 @@ public sealed record TargetTrack(long Id, DetectionSample Detection, double Obse
 
 public sealed record AdaptiveFrame(double TimeSeconds, double CenterX, double CenterY, double ScreenHeight,
     IReadOnlyList<DetectionSample> Detections, bool ActivationHeld = false, bool OutputAllowed = false,
-    string CalibrationContextKey = "default");
+    string CalibrationContextKey = "default", double SceneVelocityX = 0, double SceneVelocityY = 0,
+    bool SceneMotionReliable = false, double RecoilPixelsPerSecondY = 0);
 
 /// <summary>Relative counts, not screen coordinates. The caller must still enforce its output guards.</summary>
 public sealed record AdaptiveDecision(int? TargetSourceIndex, long? TrackId, string ContextKey,
@@ -66,6 +67,11 @@ public sealed record ContextProfile
     public long AssistedFrames { get; init; }
     public long ErrorSignCrossings { get; init; }
     public string AdjustmentEvidence { get; init; } = "ConservativeDefault";
+    public double SizeFeature { get; init; }
+    public double SpeedFeature { get; init; }
+    public double HorizontalFeature { get; init; }
+    public long FeatureSamples { get; init; }
+    public long ComparedWindows { get; init; }
 }
 
 public sealed record AdaptivePlayerState

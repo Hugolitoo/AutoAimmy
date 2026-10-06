@@ -19,11 +19,15 @@ Chaque rapport indique la version du programme. Le compteur de session commence 
 
 ## Publier les prochaines versions
 
-La compilation locale se fait avec `Build-Release.cmd -Version 0.1.2`. Le script lance les tests de l'analyseur puis publie une application self-contained. La sortie est dans `artifacts/0.1.2` :
+La compilation locale se fait avec `Build-Release.cmd -Version 0.3.0`. Le script lance les suites d'analyse, de contrôle adaptatif, d'automatisation locale, de capture et d'apprentissage, puis publie une application self-contained. La sortie est dans `artifacts/0.3.0` :
 
 - `AutoAimmy-win-x64.zip` : première installation complète ;
 - `AutoAimmy-update-win-x64.zip` : payload de mise à jour, sans données joueur ;
 - `manifest.json` : version, plateforme, taille et SHA-256 du payload.
+- `Reparer-mise-a-jour.cmd` : réparation du lanceur des premières installations ;
+- `AutoAimmy-learning-win-x64.zip` : moteur Python/PyTorch CPU séparé, si le paquet local a été préparé. Le payload de l'application contient seulement son manifest de téléchargement et les scripts d'apprentissage.
+
+Le moteur d'apprentissage de la 0.3 est publié séparément, environ 284 Mio. Le fichier `distribution/learning-runtime.json` référence sa release, son hash et sa taille. Les versions suivantes peuvent réutiliser ce paquet sans le télécharger à chaque mise à jour. Pour créer un nouveau moteur, utiliser `scripts/Build-LearningRuntime.ps1` avec l'environnement de construction préparé, mettre à jour le manifest et publier l'archive référencée. Le moteur est installé dans `data/learning/runtime`, distinct du runtime .NET inclus dans chaque version.
 
 Le script refuse d'écraser un dossier de release existant et vérifie les fichiers du runtime embarqué. Après toute modification, utiliser un nouveau numéro de version.
 

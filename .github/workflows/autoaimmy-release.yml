@@ -69,7 +69,11 @@ jobs:
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           $assets = @("artifacts/$env:RELEASE_VERSION/AutoAimmy-win-x64.zip", "artifacts/$env:RELEASE_VERSION/AutoAimmy-update-win-x64.zip", "artifacts/$env:RELEASE_VERSION/manifest.json", "artifacts/$env:RELEASE_VERSION/Reparer-mise-a-jour.cmd")
-          $arguments = @('release', 'create', "v$env:RELEASE_VERSION", '--repo', $env:RELEASE_REPOSITORY, '--target', '${{ github.sha }}', '--title', "AutoAimmy $env:RELEASE_VERSION", '--notes', 'Experimental local R6 recording, guided calibration, optional assistance and reviewed detector evaluation. Defaults to observation. Source training weights and Python dependencies are not bundled; real gameplay improvement is unverified. Download AutoAimmy-win-x64.zip for the first installation. Existing installations use the updater. Personal data is not included.')
+          # A new learning runtime is optional. Normal core releases keep using
+          # the existing package URL and hash in learning-runtime.json.
+          $runtimeAsset = "artifacts/$env:RELEASE_VERSION/AutoAimmy-learning-win-x64.zip"
+          if (Test-Path -LiteralPath $runtimeAsset -PathType Leaf) { $assets += $runtimeAsset }
+          $arguments = @('release', 'create', "v$env:RELEASE_VERSION", '--repo', $env:RELEASE_REPOSITORY, '--target', '${{ github.sha }}', '--title', "AutoAimmy $env:RELEASE_VERSION", '--notes', 'Experimental local R6 recording, camera-response calibration, adaptive profiles and optional assistance. Detector comparison and local training can run automatically while R6 is out of the foreground, after at least 40 human-reviewed images from two sessions. The portable training engine downloads once from the release pinned in the application manifest; compatible classic YOLOv8 ONNX exports can reconstruct training weights after output-equivalence checks. Real gameplay improvement remains unverified. Download AutoAimmy-win-x64.zip for the first installation. Existing installations use the updater. Player data and models are not included. Guide: https://github.com/Hugolitoo/AutoAimmy/blob/main/docs/Local-Automation-0.3.md')
           if ($env:RELEASE_CHANNEL -eq 'test') { $arguments += '--prerelease' }
           & gh @arguments @assets
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

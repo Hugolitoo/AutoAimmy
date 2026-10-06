@@ -13,6 +13,15 @@ namespace AILogic
 {
     internal class CaptureManager : IDisposable
     {
+        // DXGI permits only one duplication of an output per process. Detection,
+        // HUD OCR and session recording lease this backend and serialize its use.
+        private static readonly object SharedCaptureLock = new();
+        private static CaptureManager? sharedBackend;
+        private static int sharedClients;
+        private readonly CaptureManager? backend;
+        private readonly bool isBackend;
+        private bool disposed;
+        private int displayChangeRequested;
         #region Variables
         private string _currentCaptureMethod = ""; // Track current method
         private bool _directXFailedPermanently = false; // Track if DirectX failed with unsupported error
@@ -49,23 +58,48 @@ namespace AILogic
         #region Handlers
         public CaptureManager()
         {
-            // Subscribe to display changes FIRST
+            lock (SharedCaptureLock)
+            {
+                backend = sharedBackend ??= new CaptureManager(true);
+                sharedClients++;
+            }
+        }
+
+        private CaptureManager(bool isBackend)
+        {
+            this.isBackend = isBackend;
             DisplayManager.DisplayChanged += OnDisplayChanged;
         }
 
         private void OnDisplayChanged(object? sender, DisplayChangedEventArgs e)
         {
-            lock (_displayLock)
-            {
-                _displayChangesPending = true;
-                _consecutiveFailures = 0;
-                DisposeDxgiResources();
-            }
+            // DisplayManager raises this while holding its own monitor lock.
+            // Do not wait for capture, which reads that same monitor information.
+            Interlocked.Exchange(ref displayChangeRequested, 1);
+        }
+
+        private void ApplyPendingDisplayChange()
+        {
+            if (Interlocked.Exchange(ref displayChangeRequested, 0) == 0) return;
+            _displayChangesPending = true;
+            _consecutiveFailures = 0;
+            _directXFailedPermanently = false;
+            DisposeDxgiResources();
             LogManager.Log(LogLevel.Info, "Display change detected. DirectX resources will be reinitialized.");
         }
 
         public void HandlePendingDisplayChanges()
         {
+            if (!isBackend)
+            {
+                lock (SharedCaptureLock)
+                {
+                    ObjectDisposedException.ThrowIf(disposed, this);
+                    backend!.HandlePendingDisplayChanges();
+                }
+                return;
+            }
+            ApplyPendingDisplayChange();
             lock (_displayLock)
             {
                 if (!_displayChangesPending) return;
@@ -86,7 +120,20 @@ namespace AILogic
         #region DirectX
         public void InitializeDxgiDuplication()
         {
+            if (!isBackend)
+            {
+                lock (SharedCaptureLock)
+                {
+                    ObjectDisposedException.ThrowIf(disposed, this);
+                    backend!.InitializeDxgiDuplication();
+                }
+                return;
+            }
+            ApplyPendingDisplayChange();
+            if (_dxDevice != null && _deskDuplication != null && !_displayChangesPending) return;
             DisposeDxgiResources();
+            IDXGIOutput1? targetOutput1 = null;
+            IDXGIAdapter1? targetAdapter = null;
             try
             {
                 var currentDisplay = DisplayManager.CurrentDisplay;
@@ -97,8 +144,6 @@ namespace AILogic
                 }
 
                 using var factory = DXGI.CreateDXGIFactory1<IDXGIFactory1>();
-                IDXGIOutput1? targetOutput1 = null;
-                IDXGIAdapter1? targetAdapter = null;
                 bool foundTarget = false;
 
                 for (uint adapterIndex = 0;
@@ -138,6 +183,7 @@ namespace AILogic
                     }
 
                     if (foundTarget) break;
+                    adapter.Dispose();
                 }
 
                 // Fallback to specific display index if not found
@@ -158,6 +204,7 @@ namespace AILogic
                             {
                                 LogManager.Log(LogLevel.Warning, $"Could not match display by name or bounds. Found a fallback index, {targetIndex}.");
                                 targetOutput1 = output.QueryInterface<IDXGIOutput1>();
+                                output.Dispose();
                                 targetAdapter = adapter;
                                 foundTarget = true;
                                 break;
@@ -218,6 +265,7 @@ namespace AILogic
                 // Create desktop duplication
                 _deskDuplication = targetOutput1.DuplicateOutput(_dxDevice);
                 _consecutiveFailures = 0; //reset on success
+                _displayChangesPending = false;
 
                 LogManager.Log(LogLevel.Info, "DirectX Desktop Duplication initialized successfully.");
             }
@@ -229,6 +277,7 @@ namespace AILogic
 
                 AimSettings.ScreenCaptureMethod = "GDI+";
                 _currentCaptureMethod = "GDI+";
+                _displayChangesPending = false;
 
                 LogManager.Log(LogLevel.Error, "DirectX Desktop Duplication not supported on this system. Switched to GDI+ capture.", true, 6000);
             }
@@ -237,6 +286,11 @@ namespace AILogic
                 LogManager.Log(LogLevel.Error, $"Failed to initialize DirectX Desktop Duplication: {ex.Message}", true, 6000);
                 DisposeDxgiResources();
                 throw;
+            }
+            finally
+            {
+                targetOutput1?.Dispose();
+                targetAdapter?.Dispose();
             }
         }
         private Bitmap? DirectX(Rectangle detectionBox, bool allowStaleCache = false, bool requireFresh = false)
@@ -484,6 +538,14 @@ namespace AILogic
         #region GDI
         public Bitmap GDIScreen(Rectangle detectionBox)
         {
+            if (!isBackend)
+            {
+                lock (SharedCaptureLock)
+                {
+                    ObjectDisposedException.ThrowIf(disposed, this);
+                    return backend!.GDIScreen(detectionBox);
+                }
+            }
             if (_dxDevice != null || _deskDuplication != null)
             {
                 DisposeDxgiResources();
@@ -533,6 +595,15 @@ namespace AILogic
 
         public Bitmap? ScreenGrab(Rectangle detectionBox, bool allowStaleCache = false, bool requireFresh = false)
         {
+            if (!isBackend)
+            {
+                lock (SharedCaptureLock)
+                {
+                    ObjectDisposedException.ThrowIf(disposed, this);
+                    return backend!.ScreenGrab(detectionBox, allowStaleCache, requireFresh);
+                }
+            }
+            ApplyPendingDisplayChange();
             string selectedMethod = AimSettings.ScreenCaptureMethod;
 
             // If DirectX failed permanently, force GDI+
@@ -580,6 +651,15 @@ namespace AILogic
         #region dispose
         public void DisposeDxgiResources()
         {
+            if (!isBackend)
+            {
+                lock (SharedCaptureLock)
+                {
+                    ObjectDisposedException.ThrowIf(disposed, this);
+                    backend!.DisposeDxgiResources();
+                }
+                return;
+            }
             lock (_displayLock)
             {
                 try
@@ -605,6 +685,7 @@ namespace AILogic
                     _stagingTex = null;
                     _dxDevice = null;
                     _cachedFrame = null;
+                    directXBitmap = null;
 
                     // Small delay to ensure resources are fully released
                     //System.Threading.Thread.Sleep(50);
@@ -617,9 +698,24 @@ namespace AILogic
         }
         public void Dispose()
         {
-            DisplayManager.DisplayChanged -= OnDisplayChanged;
-            DisposeDxgiResources();
-            screenCaptureBitmap?.Dispose();
+            lock (SharedCaptureLock)
+            {
+                if (disposed) return;
+                disposed = true;
+                if (!isBackend)
+                {
+                    if (--sharedClients == 0)
+                    {
+                        backend!.Dispose();
+                        sharedBackend = null;
+                    }
+                    return;
+                }
+                DisplayManager.DisplayChanged -= OnDisplayChanged;
+                DisposeDxgiResources();
+                screenCaptureBitmap?.Dispose();
+                screenCaptureBitmap = null;
+            }
         }
         #endregion
     }

@@ -15,7 +15,7 @@ internal static class Program
         string output = Path.GetFullPath(args.FirstOrDefault() ?? Path.Combine(Path.GetTempPath(), "AutoAimmy-ui-" + Guid.NewGuid().ToString("N")));
         Directory.CreateDirectory(output);
         Environment.SetEnvironmentVariable("AUTOAIMMY_DATA_DIR", Path.Combine(output, "test-data"));
-        Environment.SetEnvironmentVariable("AUTOAIMMY_VERSION", "0.2.1-preview");
+        Environment.SetEnvironmentVariable("AUTOAIMMY_VERSION", "0.3.0-preview");
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         var page = new AutoAimmyMenuControl();
@@ -54,18 +54,76 @@ internal static class Program
         if (!import.IsCompleted) throw new Exception("Queued image import did not resume.");
         import.GetAwaiter().GetResult();
         var assembly = typeof(AutoAimmyMenuControl).Assembly;
+        // Construct the same three consumers as calibration without capturing any pixels.
+        // They must share one DXGI owner, and closing recording must not dispose detection.
+        var captureType = assembly.GetType("AILogic.CaptureManager")!;
+        var sharedField = captureType.GetField("sharedBackend", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var clientsField = captureType.GetField("sharedClients", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var backendField = captureType.GetField("backend", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var disposedField = captureType.GetField("disposed", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        int baselineClients = (int)clientsField.GetValue(null)!;
+        var detection = (IDisposable)Activator.CreateInstance(captureType)!;
+        var hud = (IDisposable)Activator.CreateInstance(captureType)!;
+        var recording = (IDisposable)Activator.CreateInstance(captureType)!;
+        var shared = backendField.GetValue(detection)!;
+        if (!ReferenceEquals(shared, backendField.GetValue(hud)) || !ReferenceEquals(shared, backendField.GetValue(recording)))
+            throw new Exception("Calibration consumers create separate desktop-duplication owners.");
+        var captureGate = captureType.GetField("SharedCaptureLock", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var displayChanged = captureType.GetMethod("OnDisplayChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        lock (captureGate)
+        {
+            var displayNotification = Task.Run(() => displayChanged.Invoke(shared, new object?[] { null, null }));
+            if (!displayNotification.Wait(TimeSpan.FromSeconds(1))) throw new Exception("Display notification waits for capture and risks lock inversion.");
+        }
+        recording.Dispose(); recording.Dispose();
+        if ((bool)disposedField.GetValue(shared)! || (int)clientsField.GetValue(null)! != baselineClients + 2)
+            throw new Exception("Stopping recording destroys the active capture owner or releases twice.");
+        Parallel.For(0, 128, _ =>
+        {
+            using var consumer = (IDisposable)Activator.CreateInstance(captureType)!;
+            if (!ReferenceEquals(shared, backendField.GetValue(consumer))) throw new Exception("Concurrent capture ownership diverged.");
+        });
+        hud.Dispose(); detection.Dispose();
+        if ((int)clientsField.GetValue(null)! != baselineClients || (baselineClients == 0 && sharedField.GetValue(null) != null))
+            throw new Exception("Capture ownership leaks after the last consumer closes.");
+        try
+        {
+            captureType.GetMethod("ScreenGrab")!.Invoke(recording, new object[] { new System.Drawing.Rectangle(0, 0, 1, 1), false, true });
+            throw new Exception("Disposed capture consumer accepted a request.");
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is ObjectDisposedException) { }
         var runtimeType = assembly.GetType("Aimmy2.LocalAutomation.LocalAutomationSession")!;
         var runtime = runtimeType.GetProperty("Instance")!.GetValue(null)!;
         var state = runtimeType.GetProperty("State")!.GetValue(runtime)!;
         if ((bool)state.GetType().GetProperty("AssistanceEnabled")!.GetValue(state)!) throw new Exception("Mouse output armed at startup.");
         try { runtimeType.GetMethod("EnableAssistance")!.Invoke(runtime, new object[] { true }); throw new Exception("Uncalibrated output allowed."); }
         catch (TargetInvocationException ex) when (ex.InnerException is InvalidOperationException) { }
+        var engineField = runtimeType.GetField("engine", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var engine = (Aimmy2.AdaptiveControl.AdaptiveAimEngine)engineField.GetValue(runtime)!;
+        engine.SetCalibration(new Aimmy2.AdaptiveControl.CalibrationResult { Success = true, ContextKey = "test", ScreenHeight = 1080,
+            PixelsPerCountX = -2, PixelsPerCountY = -3, FitX = 1, FitY = 1, SamplesX = 12, SamplesY = 12, DurationSeconds = 2 });
+        var activeField = runtimeType.GetField("active", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var needsField = runtimeType.GetField("viewNeedsMeasurement", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        activeField.SetValue(runtime, true); needsField.SetValue(runtime, true);
+        runtimeType.GetMethod("EnableAssistance")!.Invoke(runtime, new object[] { true });
+        bool StateFlag(string flag) { var value = runtimeType.GetProperty("State")!.GetValue(runtime)!; return (bool)value.GetType().GetProperty(flag)!.GetValue(value)!; }
+        if (StateFlag("AssistanceEnabled") || !StateFlag("NeedsMeasurement") || !(bool)runtimeType.GetProperty("AssistanceRequested")!.GetValue(runtime)!)
+            throw new Exception("Pending camera measurement does not block stored calibration output.");
+        needsField.SetValue(runtime, false);
+        runtimeType.GetMethod("EnableAssistance")!.Invoke(runtime, new object[] { true });
+        if (!StateFlag("AssistanceEnabled")) throw new Exception("Valid measured view cannot arm.");
+        runtimeType.GetMethod("PauseFrame")!.Invoke(runtime, new object[] { "Synthetic foreground pause" });
+        runtimeType.GetMethod("EnableAssistance")!.Invoke(runtime, new object[] { true });
+        if (StateFlag("AssistanceEnabled") || !StateFlag("NeedsMeasurement")) throw new Exception("Short foreground pause permits stale camera calibration.");
+        runtimeType.GetMethod("EnableAssistance")!.Invoke(runtime, new object[] { false });
+        activeField.SetValue(runtime, false);
+        Console.WriteLine("PASS: old calibration stays disarmed after a short pause or pending view measurement, including a second activation request.");
         // A non-pumping UI synchronization context exposes shutdown continuations that would deadlock.
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         var watch = System.Diagnostics.Stopwatch.StartNew();
         runtimeType.GetMethod("Shutdown")!.Invoke(runtime, null);
         if (watch.Elapsed > TimeSpan.FromSeconds(3)) throw new Exception("Idle local shutdown blocked.");
-        Console.WriteLine("PASS: dashboard controls/rendering, queued import, default output disarmed, uncalibrated refusal and UI-context shutdown. No game capture or generated input.");
+        Console.WriteLine("PASS: shared capture lifecycle/concurrent consumers, dashboard controls/rendering, queued import, default output disarmed, uncalibrated refusal and UI-context shutdown. No game capture or generated input.");
         Console.WriteLine("UI renders: " + output);
         app.Shutdown();
     }

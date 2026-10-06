@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../Aimmy2/AdaptiveControl/*.cs" Link="AdaptiveControl/%(Filename)%(Extension)" />
+    <Compile Include="../../Aimmy2/Adaptive/VisualHudObservation.cs" Link="Adaptive/VisualHudObservation.cs" />
   </ItemGroup>
 </Project>

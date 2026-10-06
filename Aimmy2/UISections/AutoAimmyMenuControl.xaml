@@ -33,8 +33,11 @@
                     <TextBlock Text="Session locale · calibration et assistance" FontSize="17" FontWeight="SemiBold"/>
                     <TextBlock Text="1. Chargez un modèle. 2. Démarrez la session. 3. Calibrez devant une cible immobile, sans marcher ni tirer, dans la vue que vous utiliserez. 4. Activez l’assistance." Margin="0,6,0,6"/>
                     <TextBlock x:Name="LocalStatusText" Foreground="#E6D8B3"/>
+                    <CheckBox x:Name="AutoCaptureToggle" Foreground="#E6FFFFFF" Content="Enregistrer automatiquement mes sessions R6" IsChecked="True" Margin="0,6,0,6"/>
                     <TextBlock x:Name="LocalProfileText" Margin="0,6,0,0"/>
                     <TextBlock x:Name="LocalCaptureText" Margin="0,6,0,0"/>
+                    <TextBlock x:Name="SceneStatusText" Margin="0,6,0,0" Foreground="#E6D8B3"/>
+                    <TextBlock x:Name="GameplayStatusText" Margin="0,6,0,0" Foreground="#E6D8B3"/>
                     <TextBlock Text="Enregistrement local à 5 images/s, avec lecture animée. Maximum 512 Mo par session / 2 Go au total, puis arrêt de la collecte. Aucun envoi. Les profils utilisent la taille et la vitesse à l’écran, pas des mètres." Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
                     <WrapPanel Margin="0,12,0,0">
                         <Button x:Name="StartLocalButton" Content="Démarrer la session locale" Click="StartLocal_Click"/>
@@ -43,13 +46,15 @@
                         <Button x:Name="StopLocalButton" Content="Arrêter la session" Click="StopLocal_Click"/>
                         <Button Content="Voir les enregistrements" Click="OpenRecordings_Click"/>
                     </WrapPanel>
-                    <TextBlock Text="L’assistance fonctionne avec votre touche de visée maintenue. F8 l’arrête. Recalibrez après un changement de DPI, zoom ou sensibilité. La calibration n’identifie pas automatiquement ces changements." Foreground="#E6D8B3"/>
+                    <TextBlock Text="F8 arrête l’assistance. Le décor permet de mesurer la réponse de caméra et de charger un profil de vue lorsque les mesures sont cohérentes. Si le décor est insuffisant, utilisez la calibration guidée." Foreground="#E6D8B3"/>
                 </StackPanel>
             </Border>
             <Border Background="#14FFFFFF" CornerRadius="8" Padding="14" Margin="0,0,0,12">
                 <StackPanel>
                     <TextBlock Text="Amélioration du détecteur sur ce PC" FontSize="17" FontWeight="SemiBold"/>
                     <TextBlock x:Name="LearningStatusText" Margin="0,6,0,0"/>
+                    <CheckBox x:Name="AutoLearningToggle" Foreground="#E6FFFFFF" Content="Comparer et apprendre automatiquement lorsque R6 est en pause" IsChecked="True" Margin="0,6,0,6"/>
+                    <TextBlock x:Name="AutomaticLearningStatusText" Foreground="#E6D8B3"/>
                     <TextBlock Text="Les détections stables et les cas difficiles sont conservés. Vérifiez les exemples ici ; l’application peut ensuite comparer automatiquement les seuils et les modèles sur des sessions séparées. Les cadres proposés ne sont pas une vérité terrain." Foreground="#BFFFFFFF" Margin="0,6,0,0"/>
                     <WrapPanel Margin="0,12,0,0">
                         <Button x:Name="ReviewLearningButton" Content="Vérifier les images" Click="ReviewLearning_Click"/>
@@ -58,13 +63,13 @@
                         <Button x:Name="RollbackModelButton" Content="Revenir au modèle précédent" Click="RollbackModel_Click"/>
                     </WrapPanel>
                     <TextBlock x:Name="LearningActionText" Foreground="#E6D8B3"/>
-                    <TextBlock Text="Le réentraînement des poids demande un modèle source entraînable et le moteur d’entraînement local. Un modèle ONNX permet déjà le suivi et la comparaison des réglages. Aucun abonnement ni calcul distant." Foreground="#BFFFFFFF"/>
+                    <TextBlock Text="Le moteur local est préparé automatiquement au premier entraînement (téléchargement unique). Les exports YOLOv8 compatibles peuvent être reconstruits depuis leur ONNX, avec vérification des sorties. L’analyse et l’entraînement restent sur ce PC." Foreground="#BFFFFFFF"/>
                     <WrapPanel Margin="0,12,0,0">
-                        <Button x:Name="ImportTrainingButton" Content="Importer les poids source (.pt)" Click="ImportTraining_Click"/>
+                        <Button x:Name="ImportTrainingButton" Content="Alternative : importer un .pt" Click="ImportTraining_Click"/>
                         <Button x:Name="StartTrainingButton" Content="Entraîner et comparer localement" Click="StartTraining_Click"/>
                         <Button x:Name="CancelTrainingButton" Content="Annuler le calcul" Click="CancelTraining_Click"/>
                     </WrapPanel>
-                    <TextBlock Text="Importez uniquement les poids d’une source de confiance : les fichiers PyTorch peuvent contenir du code. L’entraînement est optionnel ; l’observation et les réglages utilisent votre ONNX actuel." Foreground="#BFFFFFFF"/>
+                    <TextBlock Text="L’import .pt est une alternative facultative pour un export non reconstructible. Importez uniquement une source de confiance : les fichiers PyTorch peuvent contenir du code." Foreground="#BFFFFFFF"/>
                     <TextBlock x:Name="TrainingStatusText" Foreground="#E6D8B3" Margin="0,6,0,0"/>
                 </StackPanel>
             </Border>

@@ -19,10 +19,12 @@ namespace Other
         {
             if (notifyUser)
             {
-                Application.Current.Dispatcher.Invoke(() =>
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher != null && !dispatcher.HasShutdownStarted)
+                    dispatcher.BeginInvoke(new Action(() =>
                 {
-                    new NoticeBar(message, waitingTime).Show();
-                });
+                    if (!dispatcher.HasShutdownStarted) new NoticeBar(message, waitingTime).Show();
+                }));
             }
 #if DEBUG
             Debug.WriteLine(message);

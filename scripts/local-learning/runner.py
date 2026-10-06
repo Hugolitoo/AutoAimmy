@@ -1,7 +1,8 @@
-"""Optional local YOLOv8 training runner. Never downloads dependencies, weights or data.
+"""Local YOLOv8 recovery/training runner. Never downloads dependencies, weights or data.
 
-The shipped app can collect/review/evaluate ONNX without this environment. Training
-requires separately supplied, explicitly trusted .pt weights and local packages.
+The app prepares the portable environment separately. Supported numeric ONNX
+weights can be recovered after forward-output comparison; other exports need
+explicitly trusted source .pt weights. Training uses reviewed local datasets.
 Output is JSON; a missing prerequisite is a blocker, never a successful training.
 """
 from __future__ import annotations
@@ -76,12 +77,13 @@ def block_network() -> None:
     socket.socket.connect = forbidden
     socket.socket.connect_ex = forbidden
     socket.socket.sendto = forbidden
-    os.environ.update({"YOLO_OFFLINE": "true", "WANDB_MODE": "disabled", "COMET_MODE": "DISABLED", "CLEARML_OFFLINE_MODE": "1", "ULTRALYTICS_HUB": "0"})
+    os.environ.update({"YOLO_OFFLINE": "true", "YOLO_AUTOINSTALL": "false", "WANDB_MODE": "disabled", "COMET_MODE": "DISABLED", "CLEARML_OFFLINE_MODE": "1", "ULTRALYTICS_HUB": "0", "MPLBACKEND": "Agg"})
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["inspect", "train"], default="inspect")
+    parser.add_argument("--mode", choices=["inspect", "train", "recover"], default="inspect")
+    parser.add_argument("--onnx", type=Path)
     parser.add_argument("--weights", type=Path)
     parser.add_argument("--dataset", type=Path)
     parser.add_argument("--output", type=Path)
@@ -90,6 +92,15 @@ def main() -> int:
     parser.add_argument("--device", choices=["cpu", "0"], default="cpu")
     parser.add_argument("--image-size", type=int, choices=[160, 256, 320, 416, 512, 640], default=640)
     args = parser.parse_args()
+    if args.mode == "recover":
+        block_network()
+        try:
+            from recover_onnx import recover
+            print(json.dumps(recover(args.onnx, args.output)))
+            return 0
+        except Exception as exc:
+            print(json.dumps({"Status": "Blocked", "Blockers": [type(exc).__name__ + ":" + str(exc)]}))
+            return 2
     packages = {name: importlib.util.find_spec(name) is not None for name in ("torch", "ultralytics", "onnx")}
     blockers = [f"MissingDependency:{name}" for name, available in packages.items() if not available]
     if not args.weights or not args.weights.is_file() or args.weights.suffix.lower() != ".pt":
@@ -112,8 +123,12 @@ def main() -> int:
     try:
         manifest = validate_dataset(args.dataset)
         from ultralytics import YOLO, settings
+        import torch
+        torch.set_num_threads(2)
+        torch.set_num_interop_threads(1)
         import ultralytics.utils
         ultralytics.utils.ONLINE = False
+        ultralytics.utils.AUTOINSTALL = False
         settings.update({"sync": False, "hub": False, "wandb": False, "clearml": False, "comet": False, "mlflow": False, "neptune": False})
         args.output.mkdir(parents=True, exist_ok=False)
         model = YOLO(str(args.weights.resolve()), task="detect")
@@ -134,7 +149,8 @@ def main() -> int:
         if not exported.is_file():
             raise RuntimeError("ExportDidNotProduceOnnx")
         summary = {"Status": "CandidateAwaitingIndependentEvaluation", "CandidatePath": str(exported.resolve()),
-            "CandidateSha256": sha256(exported), "SourceSha256": sha256(args.weights), "DatasetSha256": sha256(args.dataset / "manifest.json"),
+            "CandidateSha256": sha256(exported), "CandidateWeightsPath": str(best.resolve()),
+            "CandidateWeightsSha256": sha256(best), "SourceSha256": sha256(args.weights), "DatasetSha256": sha256(args.dataset / "manifest.json"),
             "Promoted": False, "Network": "Disabled"}
         (args.output / "result.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         print(json.dumps(summary))

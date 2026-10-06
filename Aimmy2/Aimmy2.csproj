@@ -21,6 +21,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <Version>0.3.0</Version>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -139,4 +140,10 @@
 	  </None>
 	</ItemGroup>
 
+  <ItemGroup>
+    <None Include="../scripts/local-learning/*.py" Link="local-learning/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../distribution/learning-runtime.json" Link="learning-runtime.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../distribution/AutomaticSettings.psm1" Link="AutomaticSettings.psm1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../distribution/PlayerProfiles.psm1" Link="PlayerProfiles.psm1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

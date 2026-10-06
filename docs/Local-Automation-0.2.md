@@ -1,5 +1,7 @@
 # AutoAimmy 0.2.0 — parcours local expérimental
 
+Ce document décrit la version 0.2. Pour le parcours actuel et les nouveaux automatismes, voir le [guide 0.3](Local-Automation-0.3.md).
+
 Le but est d'améliorer la détection et d'adapter l'assistance à chaque joueur sur son PC. Cette version fournit un parcours utilisable dans Aimmy. Elle n'établit pas que le modèle ou la visée sont déjà meilleurs dans R6.
 
 ## Démarrer

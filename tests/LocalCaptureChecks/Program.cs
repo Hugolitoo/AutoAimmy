@@ -29,6 +29,14 @@ using (var decoded = new Bitmap(Path.Combine(recorder.DirectoryPath, "images", "
 Check(File.ReadAllText(Path.Combine(recorder.DirectoryPath, "playback.html")).Contains("playback.js") &&
     File.ReadAllText(Path.Combine(recorder.DirectoryPath, "playback.js")).Contains("UnverifiedCandidate"), "local playback index produced");
 Check(!recorder.TryRecord(image, timestamp, "DetectionCrop", new(0, 0, 80, 60), boxes), "closed recorder rejects frames");
+var cueRecorder = new LocalCaptureRecorder(Path.Combine(root, "visual-cues"), new { }, options);
+Check(cueRecorder.TryRecord(image, timestamp, "DetectionCrop", new(0, 0, 80, 60), boxes,
+    visualCue: new(true, true, .8, .1)), "visual cue frame accepted");
+await cueRecorder.DisposeAsync();
+using (var cueRow = JsonDocument.Parse(File.ReadAllLines(Path.Combine(cueRecorder.DirectoryPath, "frames.jsonl"))[0]))
+    Check(cueRow.RootElement.GetProperty("LabelStatus").GetString() == "UnverifiedCandidate" &&
+        cueRow.RootElement.GetProperty("VisualCue").GetProperty("Evidence").GetString() == "UnverifiedVisualCue",
+        "visual impact evidence persists without promoting a prediction to ground truth");
 long actualBytes = Directory.EnumerateFiles(recorder.DirectoryPath, "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length);
 Check(actualBytes == recorder.State.BytesWritten, "reported bytes cover all files");
 

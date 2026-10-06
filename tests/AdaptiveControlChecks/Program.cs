@@ -1,4 +1,5 @@
 using Aimmy2.AdaptiveControl;
+using Aimmy2.Adaptive;
 using System.Text.Json;
 
 int checks = 0;
@@ -32,6 +33,10 @@ Check(resumed.Id == first.Id && resumed.VelocityX == 0 && resumed.ConsecutiveFra
     "brief reacquisition retains identity but resets stale velocity and confirmation");
 var afterGap = tracker.Update(.4, new[] { Box(0, x: 1003) }, 960, 540)!;
 Check(afterGap.Id != first.Id && afterGap.ConsecutiveFrames == 1, "long gaps cannot retain an old identity");
+var slowerTracker = new AdaptiveTargetTracker(); TargetTrack? slowerTrack = null;
+for (int slowerFrame = 0; slowerFrame < 6; slowerFrame++)
+    slowerTrack = slowerTracker.Update(slowerFrame * .1, [Box(0, x: 1000 + slowerFrame)], 960, 540);
+Check(slowerTrack?.ConsecutiveFrames == 6, "valid CPU-rate frames confirm a target without treating every 100 ms frame as a reacquisition");
 
 tracker.Reset();
 first = tracker.Update(0, new[] { Box(0, x: 1080, width: 30, height: 60) }, 960, 540)!;
@@ -206,4 +211,109 @@ try
 }
 finally { Directory.Delete(temp, true); }
 
+var sceneRandom = new Random(15);
+byte[] scenePrevious = new byte[160 * 120]; sceneRandom.NextBytes(scenePrevious);
+byte[] sceneCurrent = new byte[scenePrevious.Length];
+for (int sceneY = 3; sceneY < 120; sceneY++) for (int sceneX = 2; sceneX < 160; sceneX++)
+    sceneCurrent[sceneY * 160 + sceneX] = scenePrevious[(sceneY - 3) * 160 + sceneX - 2];
+for (int sceneY = 40; sceneY < 75; sceneY++) for (int sceneX = 55; sceneX < 90; sceneX++) sceneCurrent[sceneY * 160 + sceneX] = 255;
+var registration = SceneMotionEstimator.Estimate(scenePrevious, sceneCurrent, 160, 120, [(55, 40, 35, 35)]);
+Check(registration.Reliable && Math.Abs(registration.X - 2) < .2 && Math.Abs(registration.Y - 3) < .2,
+    "background consensus recovers camera translation while excluding an independently moving target");
+Check(!SceneMotionEstimator.Estimate(new byte[160 * 120], new byte[160 * 120], 160, 120, []).Reliable,
+    "flat scenery cannot produce a fictitious camera estimate");
+byte[] smoothScene = new byte[160 * 120], fractionalScene = new byte[160 * 120];
+for (int sceneY = 1; sceneY < 119; sceneY++) for (int sceneX = 1; sceneX < 159; sceneX++)
+{
+    int sum = 0;
+    for (int yy = -1; yy <= 1; yy++) for (int xx = -1; xx <= 1; xx++) sum += scenePrevious[(sceneY + yy) * 160 + sceneX + xx];
+    smoothScene[sceneY * 160 + sceneX] = (byte)(sum / 9);
+}
+for (int sceneY = 2; sceneY < 118; sceneY++) for (int sceneX = 2; sceneX < 158; sceneX++)
+    fractionalScene[sceneY * 160 + sceneX] = (byte)(smoothScene[sceneY * 160 + sceneX] * .75 + smoothScene[sceneY * 160 + sceneX - 1] * .25);
+var fractionalRegistration = SceneMotionEstimator.Estimate(smoothScene, fractionalScene, 160, 120, []);
+Check(fractionalRegistration.Reliable && Math.Abs(fractionalRegistration.X - .25) < .12 && Math.Abs(fractionalRegistration.Y) < .1,
+    "subpixel background registration measures slow camera motion without integer-pixel gain quantization");
+var cameraOnlyEngine = new AdaptiveAimEngine();
+for (int sceneFrame = 0; sceneFrame < 100; sceneFrame++)
+    cameraOnlyEngine.Update(new AdaptiveFrame(sceneFrame * .01, 960, 540, 1080,
+        [Box(0, x: 1000 + sceneFrame)], SceneVelocityX: 100, SceneVelocityY: 0, SceneMotionReliable: true));
+var discovered = cameraOnlyEngine.Snapshot().Profiles.Where(p => p.Key.StartsWith("Adaptive/")).ToArray();
+Check(discovered.Length > 0 && discovered.All(p => p.SpeedFeature < .02),
+    "new situational profiles distinguish camera translation from enemy motion");
+Check(AdaptiveProfileStore.Sanitize(cameraOnlyEngine.Snapshot()).Profiles.Any(p => p.Key.StartsWith("Adaptive/")),
+    "discovered profiles survive bounded local persistence");
+var tunerCheck = new ContextTuner(); TuningResult? tuningCheckResult = null;
+for (int tuneWindow = 0; tuneWindow < 40; tuneWindow++)
+{
+    var parameters = tunerCheck.BeginWindow(.15, .07);
+    tuningCheckResult = tunerCheck.EndWindow(parameters.Candidate ? .5 : 1, 0);
+    if (tuningCheckResult.Completed) break;
+}
+Check(tuningCheckResult?.Accepted == true && tuningCheckResult.Windows == 32 && tuningCheckResult.Gain is >= .06 and <= .22,
+    "configuration changes require 16 matched windows per arm and a measured gain beyond uncertainty");
+var identicalTuner = new ContextTuner(); bool identicalAccepted = false;
+for (int tuneWindow = 0; tuneWindow < 40; tuneWindow++)
+{
+    identicalTuner.BeginWindow(.15, .07); var result = identicalTuner.EndWindow(1, 0);
+    if (result.Completed) { identicalAccepted = result.Accepted; break; }
+}
+Check(!identicalAccepted, "no tracking gain means no configuration promotion");
+
+Check(AmmoHudParser.Parse(new("31/150", [])) == (31, 150), "explicit magazine/reserve counter is read together");
+Check(AmmoHudParser.Parse(new("100/100 2.5x", [])) == (null, null), "HUD health-like values are not accepted as a magazine");
+Check(AmmoHudParser.Parse(new("31/150 20/120", [])) == (null, null), "conflicting ammo counters remain unknown");
+Check(AmmoHudParser.Parse(new("31 150", [new("31", 10, 10, 30, 30), new("150", 50, 18, 30, 16)])) == (31, 150),
+    "OCR geometry pairs a larger magazine number with the nearby smaller reserve");
+Check(AmmoHudParser.Parse(new("31 150", [new("31", 10, 10, 30, 30), new("150", 500, 18, 30, 16)])) == (null, null),
+    "unrelated distant HUD numbers are not guessed as ammunition");
+var recoilEstimate = new RecoilEstimator();
+Check(!recoilEstimate.Observe(4, .012, false, true) && !recoilEstimate.Observe(4, .012, true, false),
+    "generated input or unreliable background cannot teach recoil");
+Check(!recoilEstimate.Observe(1, .003, true, true) && !recoilEstimate.Observe(4, -.012, true, true) &&
+    !recoilEstimate.Observe(4, double.NaN, true, true), "single-shot/noisy, negative, and non-finite residuals cannot teach recoil");
+for (int burst = 0; burst < 5; burst++) recoilEstimate.Observe(4, .012, true, true);
+Check(!recoilEstimate.Reliable, "recoil requires repeated independent firing windows");
+recoilEstimate.Observe(4, .012, true, true);
+Check(recoilEstimate.Reliable && Near(recoilEstimate.MeanKick, .003) && recoilEstimate.ObservedShots == 24,
+    "six coherent measured camera residuals retain normalized recoil and shot evidence");
+var noisyRecoil = new RecoilEstimator();
+for (int burst = 0; burst < 12; burst++) noisyRecoil.Observe(4, burst % 2 == 0 ? .012 : .06, true, true);
+Check(!noisyRecoil.Reliable, "inconsistent burst residuals never activate recoil feedforward");
+var sanitizedRecoil = new RecoilEstimator(new([double.NaN, -1, .003, double.PositiveInfinity], -5));
+Check(sanitizedRecoil.Windows == 1 && sanitizedRecoil.ObservedShots == 0 && !sanitizedRecoil.Reliable,
+    "persisted recoil evidence rejects invalid numbers and negative shot counts");
+string recoilTemp = Path.Combine(Path.GetTempPath(), "AutoAimmy-recoil-check-" + Guid.NewGuid().ToString("N") + ".json");
+try
+{
+    RecoilProfileStore.Save(recoilTemp, recoilEstimate.Snapshot());
+    var restoredRecoil = new RecoilEstimator(RecoilProfileStore.Load(recoilTemp));
+    Check(restoredRecoil.Reliable && Near(restoredRecoil.MeanKick, .003), "recoil evidence survives atomic per-view persistence");
+    File.WriteAllText(recoilTemp, new string('x', 4097));
+    Check(RecoilProfileStore.Load(recoilTemp) == null, "oversize recoil checkpoints reset safely");
+}
+finally { if (File.Exists(recoilTemp)) File.Delete(recoilTemp); }
+var recoilEngine = new AdaptiveAimEngine(options); recoilEngine.SetCalibration(measured);
+AdaptiveFrame RecoilFrame(double t, double pixels = 120, bool scene = true, bool held = true, bool allowed = true) =>
+    Frame(t, allowed: allowed, held: held, x: 960) with { SceneMotionReliable = scene, RecoilPixelsPerSecondY = pixels };
+int generatedRecoilCounts = 0;
+for (int recoilFrame = 0; recoilFrame < 60; recoilFrame++) generatedRecoilCounts += recoilEngine.Update(RecoilFrame(recoilFrame / 60.0)).CountsY;
+Check(generatedRecoilCounts > 0 && generatedRecoilCounts <= 42,
+    "positive camera kick generates bounded downward counts using the measured signed camera gain");
+Check(!recoilEngine.Update(RecoilFrame(1.01, scene: false)).HasCorrection &&
+    !recoilEngine.Update(RecoilFrame(1.03, held: false)).HasCorrection &&
+    !recoilEngine.Update(RecoilFrame(1.05, allowed: false)).HasCorrection,
+    "recoil stops immediately without reliable scenery, activation, or output authorization");
+Check(!recoilEngine.Update(RecoilFrame(1.07, pixels: double.NaN)).HasCorrection &&
+    !recoilEngine.Update(RecoilFrame(1.09, pixels: -120)).HasCorrection,
+    "invalid recoil feedforward does not become movement");
+Check(!recoilEngine.Update(RecoilFrame(1.11) with { Detections = [] }).HasCorrection,
+    "recoil never continues through an absent detection");
+recoilEngine.Reset(); bool boundedRecoil = true;
+for (int recoilFrame = 0; recoilFrame < 60; recoilFrame++)
+{
+    var response = recoilEngine.Update(RecoilFrame(recoilFrame / 60.0, pixels: 1e9));
+    boundedRecoil &= Math.Sqrt(response.CountsX * response.CountsX + response.CountsY * response.CountsY) <= 24;
+}
+Check(boundedRecoil, "extreme recoil estimates cannot escape the unchanged vector count cap");
 Console.WriteLine($"{checks} adaptive control checks passed. Synthetic trajectories verify behavior; real-game quality remains unvalidated.");

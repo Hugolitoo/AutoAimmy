@@ -57,8 +57,9 @@ public static class AdaptiveProfileStore
             PlayerKey = !string.IsNullOrWhiteSpace(state.PlayerKey) && state.PlayerKey.Length <= 120 &&
                 state.PlayerKey.All(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.') ? state.PlayerKey : "local",
             Calibration = state.Calibration?.IsUsable == true ? state.Calibration : null,
-            Profiles = (state.Profiles ?? Array.Empty<ContextProfile>()).Where(p => p != null && p.Key != null && Keys.Contains(p.Key))
-                .GroupBy(p => p.Key, StringComparer.Ordinal).Select(g => g.Last()).Select(p => p with
+            Profiles = (state.Profiles ?? Array.Empty<ContextProfile>()).Where(p => p != null && p.Key != null &&
+                (Keys.Contains(p.Key) || System.Text.RegularExpressions.Regex.IsMatch(p.Key, @"^Adaptive/[0-9]{2}$")))
+                .GroupBy(p => p.Key, StringComparer.Ordinal).Select(g => g.Last()).Take(36).Select(p => p with
                 {
                     Gain = Bounded(p.Gain, .06, .22, .15),
                     SmoothingSeconds = Bounded(p.SmoothingSeconds, .025, .14, .07),
@@ -68,7 +69,12 @@ public static class AdaptiveProfileStore
                     MeanScreenSpeedInHeightsPerSecond = Bounded(p.MeanScreenSpeedInHeightsPerSecond, 0, 20),
                     AssistedFrames = Math.Clamp(p.AssistedFrames, 0, 1_000_000_000),
                     ErrorSignCrossings = Math.Clamp(p.ErrorSignCrossings, 0, 1_000_000_000),
-                    AdjustmentEvidence = p.AdjustmentEvidence == "RepeatedScreenErrorCrossingsDuringAssistance_CausalityUnverified" ?
+                    SizeFeature = Bounded(p.SizeFeature, 0, 2),
+                    SpeedFeature = Bounded(p.SpeedFeature, 0, 20),
+                    HorizontalFeature = Bounded(p.HorizontalFeature, 0, 1),
+                    FeatureSamples = Math.Clamp(p.FeatureSamples, 0, 1_000_000_000),
+                    ComparedWindows = Math.Clamp(p.ComparedWindows, 0, 1_000_000_000),
+                    AdjustmentEvidence = p.AdjustmentEvidence is "RepeatedScreenErrorCrossingsDuringAssistance_CausalityUnverified" or "MeasuredRandomizedTrackingWindows" ?
                         p.AdjustmentEvidence : "ConservativeDefault"
                 }).ToArray()
         };

@@ -41,7 +41,8 @@ internal sealed class LiveHudObserver : IDisposable
         }
         catch { return false; }
     }
-    public static async Task<string> ReadTextAsync(Bitmap bitmap)
+    public static async Task<string> ReadTextAsync(Bitmap bitmap) => (await ReadLayoutAsync(bitmap)).Text;
+    public static async Task<HudReadout> ReadLayoutAsync(Bitmap bitmap)
     {
         var engine = OcrEngine.TryCreateFromUserProfileLanguages() ?? throw new InvalidOperationException("Aucune langue OCR Windows disponible.");
         using var inverted = new Bitmap(bitmap.Width, bitmap.Height);
@@ -66,7 +67,8 @@ internal sealed class LiveHudObserver : IDisposable
         var decoder = await BitmapDecoder.CreateAsync(stream);
         using var software = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore);
         var result = await engine.RecognizeAsync(software);
-        return result.Text;
+        return new(result.Text, result.Lines.SelectMany(line => line.Words).Select(word => new HudWord(word.Text,
+            word.BoundingRect.X, word.BoundingRect.Y, word.BoundingRect.Width, word.BoundingRect.Height)).ToArray());
     }
     private async Task ObserveAsync()
     {
@@ -110,12 +112,15 @@ internal sealed class LiveHudObserver : IDisposable
                         if(center!=null && GameInForeground(out var afterBounds) && afterBounds==gameBounds)
                             HudValidationCapture.Instance.Add(center,capture,capturedAt);
                     }
-                    var parsed = HudTextParser.Parse(await ReadTextAsync(resized));
+                    var readout = await ReadLayoutAsync(resized);
+                    var parsed = HudTextParser.Parse(readout.Text);
+                    var ammo = AmmoHudParser.Parse(readout);
                     weaponStreak = parsed.Weapon != null && parsed.Weapon == priorWeapon ? weaponStreak + 1 : parsed.Weapon == null ? 0 : 1;
                     scopeStreak = parsed.Scope != null && parsed.Scope == priorScope ? scopeStreak + 1 : parsed.Scope == null ? 0 : 1;
                     priorWeapon = parsed.Weapon; priorScope = parsed.Scope;
                     Volatile.Write(ref latest, new(DateTime.UtcNow, "ReadingHUD", weaponStreak >= 2 ? parsed.Weapon : null, scopeStreak >= 2 ? parsed.Scope : null,
-                        Detail:"Texte du HUD lu localement (jusqu’à 1 lecture/s, 2 lectures cohérentes). Les icônes seules et l’état ADS ne sont pas reconnus.", FrameUtc:capturedAt));
+                        Detail:"Texte du HUD lu localement (jusqu’à 1 lecture/s). Munitions estimées à partir des chiffres et de leur disposition. L’état ADS n’est pas déduit d’une touche.",
+                        FrameUtc:capturedAt, AmmoMagazine:ammo.Magazine, AmmoReserve:ammo.Reserve));
                 }
                 catch (Exception error)
                 {

@@ -158,3 +158,42 @@ Check(File.ReadAllLines(Path.Combine(visualSession, "visual-events.jsonl")).Leng
 Check(visualRead.AdsState == "Unknown", "OCR labels never imply confirmed ADS");
 Console.WriteLine($"PASS: {checks} total checks including visual HUD timeline.");
 
+Check(AmmoHudParser.Parse(new("31 / 120", Array.Empty<HudWord>())) == (31, 120), "explicit ammunition readout");
+Check(AmmoHudParser.Parse(new("100 / 100", Array.Empty<HudWord>())) == (null, null), "health-like pair is not ammunition");
+Check(AmmoHudParser.Parse(new("", new[] { new HudWord("30", 10, 10, 30, 40), new HudWord("120", 46, 25, 32, 18) })) == (30, 120), "ammunition layout accepts a larger magazine count beside reserve");
+Check(AmmoHudParser.Parse(new("", new[] { new HudWord("30", 10, 10, 30, 20), new HudWord("120", 46, 10, 32, 20) })) == (null, null), "ambiguous same-size numbers stay unknown");
+byte[] MarkerImage(string shape)
+{
+    byte[] pixels = new byte[64 * 64 * 3];
+    for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++)
+    {
+        double dx = x - 31.5, dy = y - 31.5;
+        bool light = shape == "full" || shape == "X" && Math.Abs(Math.Abs(dx) - Math.Abs(dy)) <= 2 ||
+            shape == "+" && (Math.Abs(dx) <= 2 || Math.Abs(dy) <= 2) ||
+            shape == "half" && dx > 0 && Math.Abs(Math.Abs(dx) - Math.Abs(dy)) <= 2;
+        if (light) for (int c = 0; c < 3; c++) pixels[(y * 64 + x) * 3 + c] = 255;
+    }
+    return pixels;
+}
+double xStrength = ImpactCueDetector.MarkerStrength(MarkerImage("X"), 64);
+Check(xStrength > .5, "four diagonal arms have marker contrast");
+Check(ImpactCueDetector.MarkerStrength(MarkerImage("+"), 64) < .05 &&
+    ImpactCueDetector.MarkerStrength(MarkerImage("full"), 64) < .05 &&
+    ImpactCueDetector.MarkerStrength(MarkerImage("half"), 64) < .05, "plus reticle, bright flash and incomplete arms rejected");
+var cueDetector = new ImpactCueDetector();
+for (int i = 0; i < 8; i++) Check(!cueDetector.Observe(i * .1, xStrength, .1, .02, true, true).Any, "static optic and red clothing do not produce temporal hits");
+cueDetector.Reset();
+for (int i = 0; i < 4; i++) cueDetector.Observe(i * .1, 0, .01, .01, true, true);
+Check(cueDetector.Observe(.4, xStrength, .01, .01, true, true).ProbableHeadMarker, "center marker flash during tracked firing becomes a probable cue");
+Check(!cueDetector.Observe(.5, xStrength, .2, .01, true, true).Any, "cue cooldown prevents duplicate hits");
+cueDetector.Reset();
+for (int i = 0; i < 4; i++) cueDetector.Observe(i * .1, 0, .01, .01, false, true);
+Check(!cueDetector.Observe(.4, xStrength, .2, .01, false, true).Any, "no firing means no impact cue");
+cueDetector.Reset();
+for (int i = 0; i < 4; i++) cueDetector.Observe(i * .1, 0, .01, .01, true, true);
+Check(!cueDetector.Observe(.4, 0, .2, .2, true, true).ProbableBlood, "global damage-red flash does not imply target blood");
+Check(cueDetector.Observe(.5, 0, .3, .2, true, true).ProbableBlood, "isolated rising target red during firing becomes probable blood");
+Check(!cueDetector.Observe(2, xStrength, .5, .2, true, true).Any, "stale image interval resets evidence");
+Check(!cueDetector.Observe(2.1, double.NaN, 0, 0, true, true).Any, "invalid visual values rejected");
+Console.WriteLine($"PASS: {checks} total checks including ammunition and unverified impact cues.");
+

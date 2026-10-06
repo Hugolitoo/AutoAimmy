@@ -29,6 +29,7 @@ public sealed class AdaptiveTargetTracker
 
     public TargetTrack? Update(double timeSeconds, IReadOnlyList<DetectionSample> detections, double centerX, double centerY)
     {
+        double previousFrameTime = lastTime;
         if (!double.IsFinite(timeSeconds) || !double.IsFinite(centerX) || !double.IsFinite(centerY))
         { Reset(); return null; }
         if (!double.IsNaN(lastTime) && (timeSeconds <= lastTime || timeSeconds - lastTime > options.MaximumFrameGapSeconds))
@@ -63,7 +64,7 @@ public sealed class AdaptiveTargetTracker
             var t = pair.Track;
             var d = candidates[pair.Index];
             double dt = timeSeconds - t.LastSeen;
-            bool continuous = dt is > 0 and <= .075;
+            bool continuous = dt > 0 && dt <= options.MaximumFrameGapSeconds && Math.Abs(t.LastSeen - previousFrameTime) < 1e-8;
             if (continuous)
             {
                 double alpha = 1 - Math.Exp(-dt / .055);

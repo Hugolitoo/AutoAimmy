@@ -31,7 +31,8 @@ public sealed class ModelLearningCoordinator
         lock (_gate)
         {
             var activeHash = !string.IsNullOrEmpty(activeModelPath) && File.Exists(activeModelPath) ? CachedModelHash(activeModelPath) : null;
-            var captures = ReadCaptures().Where(x => activeHash == null || x.ModelSha256 == activeHash).ToArray();
+            var related = activeHash == null ? null : RelatedModelHashes(activeHash);
+            var captures = ReadCaptures().Where(x => related == null || related.Contains(x.ModelSha256)).ToArray();
             var weights = DiscoverSourceWeights(activeModelPath);
             var pending = captures.Count(x => x.ReviewStatus == "Unreviewed");
             var reviewed = captures.Count(x => x.ReviewStatus == "HumanReviewed");
@@ -43,7 +44,7 @@ public sealed class ModelLearningCoordinator
             if (captures.Where(x => x.ReviewStatus == "HumanReviewed").Select(x => x.SessionId).Distinct().Count() < 2)
                 blockers.Add("IndependentValidationSessionMissing");
             var detail = weights.Length == 0
-                ? "Captures locales prêtes à être vérifiées. Le fichier ONNX sert à détecter ; les poids source .pt manquent pour le réentraînement."
+                ? "Les exports YOLOv8 compatibles peuvent fournir leurs poids par reconstruction vérifiée. Les images fiables et le moteur local restent nécessaires."
                 : "Poids source trouvés. L'entraînement exige un environnement Python local et des annotations vérifiées, avec une session de validation séparée.";
             return new(blockers.Count > 0 ? "WaitingForPrerequisites" : "ReadyForLocalTraining", pending, reviewed,
                 weights, blockers.ToArray(), detail, ResolveSelectedModel(activeModelPath));
@@ -113,7 +114,11 @@ public sealed class ModelLearningCoordinator
                     var hash = modelPath != null && File.Exists(modelPath) ? CachedModelHash(modelPath) : new string('0', 64);
                     var reason = root.TryGetProperty("SelectionReason", out var reasonProperty) ? reasonProperty.GetString() : "Periodic";
                     reason = reason switch { "ConfidentPrediction" => "StableDetection", "LowConfidenceOrUncertain" => "UncertainDetection", "NoPrediction" => "NoDetection", _ => "Periodic" };
-                    if (SubmitCapture(File.ReadAllBytes(path), Path.GetFileName(session), hash, reason, boxes) != null) count++;
+                    // An old recording imported today is not new evidence collected
+                    // after a model upgrade. Unknown timestamps remain ineligible.
+                    var capturedUtc = root.TryGetProperty("CapturedUtc", out var timestamp) && timestamp.TryGetDateTime(out var recordedUtc)
+                        ? recordedUtc.ToUniversalTime() : DateTime.MinValue;
+                    if (SubmitCapture(File.ReadAllBytes(path), Path.GetFileName(session), hash, reason, boxes, capturedUtc) != null) count++;
                     if (count >= 100 || existingFiles.Length + count >= MaximumCaptures) return count;
                 }
                 catch (Exception ex) when (ex is IOException or JsonException or ArgumentException or InvalidOperationException or KeyNotFoundException or UnauthorizedAccessException) { }
@@ -175,12 +180,14 @@ public sealed class ModelLearningCoordinator
     }
 
     // This method stores proposals only. Confidence, agreement and persistence never imply ground truth.
-    public string? SubmitCapture(byte[] jpeg, string sessionId, string modelSha256, string reason, IEnumerable<LearningBox> proposals)
+    public string? SubmitCapture(byte[] jpeg, string sessionId, string modelSha256, string reason, IEnumerable<LearningBox> proposals,
+        DateTime? capturedUtc = null)
     {
         if (jpeg.Length < 4 || jpeg.LongLength > MaximumImageBytes || jpeg[0] != 0xff || jpeg[1] != 0xd8 || jpeg[^2] != 0xff || jpeg[^1] != 0xd9)
             throw new ArgumentException("A complete JPEG image is required.", nameof(jpeg));
         RequireId(sessionId);
         if (!IsHash(modelSha256)) throw new ArgumentException("Model SHA256 is required.");
+        if (capturedUtc > DateTime.UtcNow.AddMinutes(5)) throw new ArgumentException("Capture timestamp is in the future.");
         var boxes = proposals.Take(1001).ToArray();
         if (boxes.Length > 1000 || boxes.Any(x => !x.IsValid)) throw new ArgumentException("Invalid proposed boxes.");
         var allowedReasons = new[] { "StableDetection", "UncertainDetection", "LostTrack", "NoDetection", "Periodic" };
@@ -195,7 +202,7 @@ public sealed class ModelLearningCoordinator
             if (existing.Length >= MaximumCaptures || existing.Sum(x => new FileInfo(x).Length) + jpeg.Length > MaximumStoredImageBytes)
                 return null;
             File.WriteAllBytes(Path.Combine(directory, id + ".jpg"), jpeg);
-            WriteJson(Path.Combine(directory, id + ".json"), new LearningCapture(id, sessionId, DateTime.UtcNow,
+            WriteJson(Path.Combine(directory, id + ".json"), new LearningCapture(id, sessionId, capturedUtc ?? DateTime.UtcNow,
                 id, modelSha256.ToLowerInvariant(), reason, boxes));
             return id;
         }
@@ -223,8 +230,9 @@ public sealed class ModelLearningCoordinator
         if (modelSha256 != null && !IsHash(modelSha256)) throw new ArgumentException("Invalid source model hash.");
         lock (_gate)
         {
+            var related = modelSha256 == null ? null : RelatedModelHashes(modelSha256, classNames);
             var reviewed = ReadCaptures().Where(x => x.ReviewStatus == "HumanReviewed" && x.GroundTruth != null &&
-                (modelSha256 == null || x.ModelSha256 == modelSha256)).ToArray();
+                (related == null || related.Contains(x.ModelSha256))).ToArray();
             if (reviewed.Length < 40) throw new InvalidOperationException("ReviewedDatasetMissing: at least 40 reviewed frames are required.");
             var sessions = reviewed.GroupBy(x => x.SessionId).OrderBy(x => x.Min(c => c.CapturedUtc)).ToArray();
             if (sessions.Length < 2) throw new InvalidOperationException("IndependentValidationSessionMissing: record a second session.");
@@ -342,7 +350,10 @@ public sealed class ModelLearningCoordinator
         var reasons = PromotionPolicy.RejectionReasons(before.Result(), after.Result());
         var result = new ConfidenceOptimization(modelHash, dataset.ManifestSha256, originalConfidence, chosen,
             before.Result(), after.Result(), reasons.Length == 0, reasons, DateTime.UtcNow);
-        WriteJson(Path.Combine(_root, "confidence-evaluations", modelHash + ".json"), result);
+        // Keep the last validated configuration when a later experiment is rejected.
+        // Attempts remain available for diagnostics without replacing the active result.
+        WriteJson(Path.Combine(_root, "confidence-attempts", modelHash + "-" + dataset.ManifestSha256 + ".json"), result);
+        if (result.Accepted) WriteJson(Path.Combine(_root, "confidence-evaluations", modelHash + ".json"), result);
         return result;
     }
 
@@ -387,9 +398,57 @@ public sealed class ModelLearningCoordinator
             }
             var accepted = StoreModel(candidatePath, evaluation.CandidateSha256);
             var previous = StoreModel(baselinePath, evaluation.BaselineSha256);
+            var ancestors = RelatedModelHashes(evaluation.BaselineSha256, dataset.ClassNames).ToArray();
+            // Keep the oldest known source even after many upgrades: the original
+            // human-reviewed dataset must not fall off a newest-first ancestry cap.
+            var retainedAncestors = ancestors.Take(31).Concat(ancestors.TakeLast(1)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            WriteJson(Path.Combine(_root, "model-lineage", evaluation.CandidateSha256 + ".json"), new {
+                ClassNames = dataset.ClassNames, Parents = retainedAncestors });
             var selection = new ModelSelection(accepted, evaluation.CandidateSha256, previous, evaluation.BaselineSha256, DateTime.UtcNow, evaluationPath);
             WriteJson(Path.Combine(_root, "model-selection.json"), selection);
             return selection;
+        }
+    }
+
+    public HashSet<string> RelatedModelHashes(string hash, string[]? classNames = null)
+    {
+        if (!IsHash(hash)) throw new ArgumentException("Invalid model hash.");
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { hash };
+        string path = Path.Combine(_root, "model-lineage", hash.ToLowerInvariant() + ".json");
+        try
+        {
+            if (!File.Exists(path) || new FileInfo(path).Length > 32768) return result;
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            string[] names = document.RootElement.GetProperty("ClassNames").EnumerateArray().Select(x => x.GetString()!).ToArray();
+            if (classNames != null && !names.SequenceEqual(classNames, StringComparer.Ordinal)) return result;
+            // Older manifests can contain 33 parents. Retain their oldest source
+            // as well when migrating, instead of silently discarding its labels.
+            var parents = document.RootElement.GetProperty("Parents").EnumerateArray().ToArray();
+            foreach (var parent in parents.Take(31).Concat(parents.TakeLast(1)))
+                if (parent.GetString() is string value && IsHash(value)) result.Add(value);
+        }
+        catch (Exception error) when (error is IOException or JsonException or InvalidOperationException) { }
+        return result;
+    }
+
+    public bool RevalidateSelectedModel(LearningDataset dataset, string activeModelPath,
+        Func<string, ILocalDetector> factory, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            string selectionPath = Path.Combine(_root, "model-selection.json");
+            if (!File.Exists(selectionPath)) return false;
+            var selected = ReadJson<ModelSelection>(selectionPath);
+            if (HashFile(activeModelPath) != selected.ActiveSha256 || !File.Exists(selected.PreviousPath) ||
+                HashFile(selected.PreviousPath) != selected.PreviousSha256 || dataset.Validation.Sum(x => x.GroundTruth.Length) < 40) return false;
+            var captures = ReadCaptures().ToDictionary(x => x.Id);
+            if (dataset.Validation.Any(x => !captures.TryGetValue(x.CaptureId, out var capture) || capture.CapturedUtc <= selected.SelectedUtc ||
+                capture.ReviewStatus != "HumanReviewed" || capture.GroundTruth == null || !capture.GroundTruth.SequenceEqual(x.GroundTruth))) return false;
+            var result = EvaluateCandidate(dataset, selected.PreviousPath, activeModelPath, factory, cancellationToken);
+            WriteJson(Path.Combine(_root, "revalidation", dataset.ManifestSha256 + ".json"), result);
+            if (result.Candidate.F1 + .03 >= result.Baseline.F1) return false;
+            Rollback();
+            return true;
         }
     }
 

@@ -20,6 +20,11 @@ public sealed class LocalCaptureService
     private string captureStatus = "Stopped";
     private string? captureError;
     private long nextDetectionSample;
+    private GameplayVisionObserver vision = new();
+    private LocalInputSample? latestInput;
+    private long nextImpactSample;
+    private string visualDetail = "Indices d’impact : en attente d’une cible suivie pendant les tirs.";
+    public string VisualDetail => Volatile.Read(ref visualDetail);
 
     public LocalCaptureState State
     {
@@ -41,6 +46,7 @@ public sealed class LocalCaptureService
             stop?.Dispose();
             stop = new();
             latestDetections = null; foreground = null; nextDetectionSample = 0;
+            latestInput = null; vision = new(); nextImpactSample = 0;
             captureStatus = "WaitingForR6"; captureError = null;
             var token = stop.Token;
             var activeRecorder = recorder;
@@ -51,8 +57,10 @@ public sealed class LocalCaptureService
     public bool PublishInput(LocalInputSample sample)
     {
         var window = Volatile.Read(ref foreground);
-        return window != null && R6ForegroundGuard.IsSameForegroundWindow(window) &&
+        bool accepted = window != null && R6ForegroundGuard.IsSameForegroundWindow(window) &&
             (Volatile.Read(ref recorder)?.TryRecordInput(sample) ?? false);
+        if (accepted) Volatile.Write(ref latestInput, sample);
+        return accepted;
     }
 
     public bool PublishDetections(Bitmap bitmap, Rectangle captureBounds, IReadOnlyList<LocalDetectionBox> detections,
@@ -63,13 +71,23 @@ public sealed class LocalCaptureService
             !R6ForegroundGuard.StillMatches(capturedForeground)) return false;
         Volatile.Write(ref latestDetections, new(capturedUtc, captureBounds, detections.Take(512).ToArray(), modelName));
         long now = Environment.TickCount64;
+        LocalVisualCue? visualCue = null;
         lock (gate)
         {
-            if (now < nextDetectionSample) return false;
+            var input = Volatile.Read(ref latestInput);
+            bool firing = input?.LeftPressed == true && Math.Abs((capturedUtc - input.CapturedUtc).TotalSeconds) <= .15;
+            var cue = vision.Observe(bitmap, captureBounds, detections, capturedUtc, firing,
+                new PointF(DisplayManager.ScreenLeft + DisplayManager.ScreenWidth / 2f,
+                    DisplayManager.ScreenTop + DisplayManager.ScreenHeight / 2f), DisplayManager.ScreenHeight);
+            Volatile.Write(ref visualDetail, vision.Detail);
+            if (cue.Any) visualCue = new(cue.ProbableHeadMarker, cue.ProbableBlood, cue.MarkerStrength, cue.BloodIncrease);
+            bool impactSample = cue.Any && now >= nextImpactSample;
+            if (now < nextDetectionSample && !impactSample) return false;
+            if (impactSample) nextImpactSample = now + 250;
             nextDetectionSample = now + options.DetectionSampleIntervalMilliseconds;
         }
         try { return active.TryRecord(bitmap, capturedUtc, "DetectionCrop", captureBounds, detections, modelName,
-            capturedUtc, captureBounds); }
+            capturedUtc, captureBounds, visualCue); }
         catch (Exception error)
         {
             Volatile.Write(ref captureError, "Image candidate non enregistrée : " + error.Message);

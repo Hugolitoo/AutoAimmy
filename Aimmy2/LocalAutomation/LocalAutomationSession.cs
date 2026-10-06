@@ -16,7 +16,8 @@ namespace Aimmy2.LocalAutomation;
 
 internal sealed record LocalAutomationState(bool Active, bool Calibrating, bool AssistanceEnabled,
     bool Calibrated, string Message, string Context, int SamplesX = 0, int SamplesY = 0,
-    int ProfileCount = 0, double Gain = 0, string? ProfilePath = null);
+    int ProfileCount = 0, double Gain = 0, string? ProfilePath = null, long ComparedWindows = 0, int ValidatedProfiles = 0,
+    bool NeedsMeasurement = true);
 
 /// <summary>One local workflow. No network, no game memory, no implicit mouse output on startup.</summary>
 internal sealed class LocalAutomationSession
@@ -26,6 +27,16 @@ internal sealed class LocalAutomationSession
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private AdaptiveAimEngine engine = new();
     private GuidedCalibration? calibration;
+    private GuidedCalibration? backgroundCalibration;
+    private readonly SceneMotionObserver sceneObserver = new();
+    private readonly GameplayEvidenceObserver gameplayEvidence = new();
+    private double sceneRawX, sceneRawY, backgroundX = 1000, backgroundY = 1000, lastOutput = -10;
+    private int backgroundFits;
+    private CalibrationResult? lastBackgroundFit;
+    private bool requestedAssistance;
+    private bool viewNeedsMeasurement = true;
+    private long emergencyEpoch;
+    private string visionDetail = "Décor : en attente d’images.";
     private bool active, assistance;
     private double calibrationStart, lastSave;
     private double lastSettingsCheck;
@@ -34,7 +45,7 @@ internal sealed class LocalAutomationSession
     private long previousRawX, previousRawY;
     private bool rawBaseline;
     private readonly CancellationTokenSource emergencyStop = new();
-    private string modelPath = "", profilePath = "", contextKey = "";
+    private string modelPath = "", profilePath = "", contextKey = "", settingsKey = "";
     private string message = "Chargez un modèle, puis démarrez une session locale.";
     private LocalAutomationState state = new(false, false, false, false,
         "Chargez un modèle, puis démarrez une session locale.", "Aucun");
@@ -43,6 +54,8 @@ internal sealed class LocalAutomationSession
     public double Timestamp => clock.Elapsed.TotalSeconds;
     public double MinimumConfidence => Volatile.Read(ref minimumConfidence);
     public string ModelPath { get { lock (gate) return modelPath; } }
+    public bool AssistanceRequested { get { lock (gate) return requestedAssistance; } }
+    public long EmergencyEpoch => Interlocked.Read(ref emergencyEpoch);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
     private static bool Key(int key) => (GetAsyncKeyState(key) & 0x8000) != 0;
     internal static bool ActivationHeld => InputLogic.InputBindingManager.IsHoldingBinding("Aim Keybind") ||
@@ -51,12 +64,29 @@ internal sealed class LocalAutomationSession
     private async Task WatchEmergencyAsync()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(25));
+        bool previouslyHeld = false;
         try
         {
             while (await timer.WaitForNextTickAsync(emergencyStop.Token).ConfigureAwait(false))
             {
-                if (!State.AssistanceEnabled || !Key(0x77)) continue;
-                lock (gate) { assistance = false; engine.Reset(); message = "Assistance arrêtée avec F8."; Publish(); }
+                bool held = Key(0x77);
+                bool pressed = held && !previouslyHeld;
+                previouslyHeld = held;
+                lock (gate)
+                {
+                    if (pressed)
+                    {
+                        emergencyEpoch++; assistance = requestedAssistance = false; engine.Reset();
+                        gameplayEvidence.BreakInterval(); message = "Assistance arrêtée avec F8."; Publish();
+                    }
+                    // No-frame/black-screen/focus pauses must not leave the UI calibrating forever.
+                    if (calibration != null && clock.Elapsed.TotalSeconds - calibrationStart > 45)
+                    {
+                        calibration = null; engine.Reset(); ResetSceneCalibration();
+                        message = "Calibration terminée sans assez de mesures. Revenez sur R6, puis recommencez sans tirer ni déplacer le personnage.";
+                        Publish();
+                    }
+                }
             }
         }
         catch (OperationCanceledException) when (emergencyStop.IsCancellationRequested) { }
@@ -71,7 +101,7 @@ internal sealed class LocalAutomationSession
             if (string.Equals(next, modelPath, StringComparison.OrdinalIgnoreCase)) return;
             SaveProfile();
             modelPath = next;
-            assistance = false;
+            assistance = requestedAssistance = false;
             calibration = null;
             rawBaseline = false;
             LoadProfile();
@@ -105,11 +135,24 @@ internal sealed class LocalAutomationSession
     }
     private void LoadProfile()
     {
-        contextKey = SettingsFingerprint();
+        contextKey = settingsKey = SettingsFingerprint();
         profilePath = Path.Combine(ObservationMode.DataDirectory, "local-profiles", contextKey + ".json");
+        string viewPointer = Path.Combine(ObservationMode.DataDirectory, "local-profiles", settingsKey + "-active-view.txt");
+        try
+        {
+            if (File.Exists(viewPointer))
+            {
+                string view = File.ReadAllText(viewPointer).Trim();
+                if (view.Length == 12 && view.All(Uri.IsHexDigit)) profilePath = Path.Combine(ObservationMode.DataDirectory, "local-profiles", settingsKey + "-view-" + view + ".json");
+            }
+        }
+        catch (IOException) { }
         minimumConfidence = Math.Clamp(new ModelLearningCoordinator(ObservationMode.DataDirectory).TryGetRecommendedConfidence(modelPath)
             ?? (double)AimSettings.MinimumConfidence, .1, .99);
         engine = new AdaptiveAimEngine(new AdaptiveControlOptions { MinimumConfidence = minimumConfidence }, AdaptiveProfileStore.Load(profilePath));
+        viewNeedsMeasurement = true;
+        gameplayEvidence.Reset(RecoilProfileStore.Load(profilePath + ".recoil.json"));
+        ResetSceneCalibration();
     }
     public void ReloadConfiguration() { lock (gate) { if (!active) { LoadProfile(); Publish(); } } }
 
@@ -126,6 +169,7 @@ internal sealed class LocalAutomationSession
             LocalCaptureService.Instance.Start(ObservationMode.DataDirectory, PlayerSessionContext.Load(ObservationMode.DataDirectory));
             active = true;
             assistance = false;
+            requestedAssistance = false;
             rawBaseline = false;
             message = "Session locale active. Remettez R6 au premier plan. La souris reste manuelle jusqu’à l’activation de l’assistance.";
             Publish();
@@ -137,6 +181,7 @@ internal sealed class LocalAutomationSession
         lock (gate)
         {
             active = assistance = false;
+            requestedAssistance = false;
             calibration = null;
             engine.Reset();
             SaveProfile();
@@ -154,7 +199,9 @@ internal sealed class LocalAutomationSession
         lock (gate)
         {
             assistance = false;
+            requestedAssistance = false;
             engine.Reset();
+            viewNeedsMeasurement = true;
             calibration = new GuidedCalibration(contextKey, DisplayManager.ScreenHeight);
             calibrationStart = clock.Elapsed.TotalSeconds + 5;
             rawBaseline = false;
@@ -169,9 +216,26 @@ internal sealed class LocalAutomationSession
         {
             if (enabled && (!active || calibration != null || engine.Snapshot().Calibration?.IsUsable != true))
                 throw new InvalidOperationException("Terminez une calibration valide dans la vue utilisée avant d’activer l’assistance.");
-            assistance = enabled;
+            assistance = enabled && !viewNeedsMeasurement;
+            requestedAssistance = enabled;
             engine.Reset();
-            message = enabled ? "Assistance expérimentale active tant que la touche de visée est maintenue. F8 l’arrête. Recalibrez après changement de DPI, sensibilité ou zoom." : "Assistance arrêtée ; observation locale active.";
+            message = enabled ? viewNeedsMeasurement
+                ? "Activation demandée : mesure de la vue actuelle nécessaire. Maintenez la touche de visée et bougez doucement dans les deux axes, sans tirer ni marcher. F8 annule."
+                : "Assistance expérimentale active tant que la touche de visée est maintenue. F8 l’arrête. Recalibrez après changement de DPI, sensibilité ou zoom."
+                : "Assistance arrêtée ; observation locale active.";
+            Publish();
+        }
+    }
+    public void RequestResumeAfterMeasurement()
+    {
+        lock (gate)
+        {
+            if (!active) return;
+            requestedAssistance = true;
+            assistance = false;
+            viewNeedsMeasurement = true;
+            ResetSceneCalibration();
+            message = "Reprise de l’assistance en attente de mesures cohérentes dans cette vue. F8 annule la reprise.";
             Publish();
         }
     }
@@ -181,7 +245,10 @@ internal sealed class LocalAutomationSession
         lock (gate)
         {
             if (!active) return;
+            assistance = false;
+            viewNeedsMeasurement = true;
             engine.Reset(); calibration?.BreakInterval(); rawBaseline = false;
+            ResetSceneCalibration();
             message = reason;
             Publish();
         }
@@ -199,9 +266,9 @@ internal sealed class LocalAutomationSession
             if (now - lastSettingsCheck >= 1)
             {
                 lastSettingsCheck = now;
-                if (SettingsFingerprint() != contextKey)
+                if (SettingsFingerprint() != settingsKey)
                 {
-                    SaveProfile(); assistance = false; calibration = null; LoadProfile(); rawBaseline = false;
+                    SaveProfile(); assistance = requestedAssistance = false; calibration = null; LoadProfile(); rawBaseline = false;
                     message = "Réglages modifiés : profil correspondant chargé. Vérifiez la calibration avant de réactiver l’assistance.";
                     Publish(); return null;
                 }
@@ -211,17 +278,59 @@ internal sealed class LocalAutomationSession
             previousRawX = rawX; previousRawY = rawY;
             rawBaseline = rawAvailable;
             bool held = ActivationHeld;
-            if (Key(0x77)) { assistance = false; message = "Assistance arrêtée avec F8."; }
-            LocalCaptureService.Instance.PublishInput(new LocalInputSample(capturedUtc, rawAvailable ? dx : null,
-                rawAvailable ? dy : null, Key(1), Key(2), assistance));
-            LocalCaptureService.Instance.PublishDetections(frame, bounds, predictions.Select(p => new LocalDetectionBox(
-                p.Rectangle.X, p.Rectangle.Y, p.Rectangle.Width, p.Rectangle.Height, p.Confidence, p.ClassId)).ToArray(),
-                capturedUtc, Path.GetFileName(modelPath), foreground);
+            if (Key(0x77)) { assistance = requestedAssistance = false; message = "Assistance arrêtée avec F8."; }
             var detections = predictions.Select((p, i) => new DetectionSample(i, p.ScreenCenterX, p.ScreenCenterY,
                 p.Rectangle.Width, p.Rectangle.Height, p.Confidence, p.ClassId)).ToArray();
+            sceneRawX += dx; sceneRawY += dy;
+            var scene = sceneObserver.Observe(frame, bounds, detections, now);
+            if (sceneObserver.Blank)
+            { PauseFrame("Image de jeu noire : calibration et correction en pause. Vérifiez le mode de capture et l’affichage de R6."); return null; }
+            visionDetail = scene.Reliable ? $"Décor suivi : {scene.Confidence:P0} · caméra {scene.X:0.0}/{scene.Y:0.0} px · échelle {scene.Scale:0.000}." : "Décor insuffisant : mouvement des cibles non séparé de la caméra.";
+            if (sceneObserver.Updated)
+            {
+                bool walking = Key(0x57) || Key(0x41) || Key(0x53) || Key(0x44) || Key(0x20) || Key(0x51) || Key(0x45);
+                gameplayEvidence.Observe(capturedUtc, scene, sceneRawY, engine.Calibration,
+                    rawAvailable && held && calibration == null && now - lastOutput > .25,
+                    walking, Key(1), DisplayManager.ScreenHeight, sceneObserver.Interval);
+                if (scene.Reliable && Math.Abs(scene.Scale - 1) > .035)
+                {
+                    assistance = false; viewNeedsMeasurement = true; engine.Reset(); backgroundCalibration = null; backgroundFits = 0;
+                    message = "Changement de vue probable : assistance suspendue pendant la mesure de la nouvelle réponse.";
+                }
+                if (scene.Reliable && Math.Abs(scene.Scale - 1) < .02 && rawAvailable && held && !Key(1) && !walking && now - lastOutput > .25)
+                {
+                    backgroundCalibration ??= new GuidedCalibration(contextKey, DisplayManager.ScreenHeight);
+                    backgroundX += scene.X; backgroundY += scene.Y;
+                    var fit = backgroundCalibration.Observe(new CalibrationObservation(now, 1, backgroundX, backgroundY,
+                        sceneRawX, sceneRawY, true, false, 100));
+                    if (fit.IsUsable)
+                    {
+                        bool agrees = lastBackgroundFit != null && Math.Abs(fit.PixelsPerCountX / lastBackgroundFit.PixelsPerCountX - 1) < .15 &&
+                            Math.Abs(fit.PixelsPerCountY / lastBackgroundFit.PixelsPerCountY - 1) < .15;
+                        backgroundFits = agrees ? backgroundFits + 1 : 1;
+                        lastBackgroundFit = fit;
+                        backgroundCalibration = null;
+                        if (calibration != null || backgroundFits >= 2)
+                        {
+                            ApplyCameraResponse(fit);
+                            calibration = null;
+                            assistance = requestedAssistance;
+                            message = "Réponse de caméra mesurée sur le décor ; profil de cette vue chargé automatiquement.";
+                        }
+                    }
+                }
+                else backgroundCalibration?.BreakInterval();
+                sceneRawX = sceneRawY = 0;
+            }
+            double interval = sceneObserver.Interval;
             var decision = engine.Update(new AdaptiveFrame(now, DisplayManager.ScreenLeft + DisplayManager.ScreenWidth / 2.0,
                 DisplayManager.ScreenTop + DisplayManager.ScreenHeight / 2.0, DisplayManager.ScreenHeight, detections,
-                held, assistance && calibration == null && rawAvailable, contextKey));
+                held, assistance && !viewNeedsMeasurement && calibration == null && rawAvailable, contextKey,
+                scene.Reliable && interval > 0 ? scene.X / interval : 0,
+                scene.Reliable && interval > 0 ? scene.Y / interval : 0, scene.Reliable,
+                gameplayEvidence.RecoilPixelsPerSecond(capturedUtc, DisplayManager.ScreenHeight, Key(1))));
+            int generatedX = 0, generatedY = 0;
+            DateTime? generatedUtc = null;
             if (calibration != null)
             {
                 if (now < calibrationStart) message = $"Calibration dans {Math.Ceiling(calibrationStart - now):0} s. Placez-vous devant une cible immobile.";
@@ -236,7 +345,7 @@ internal sealed class LocalAutomationSession
                         target.Detection.Y, dx, dy, true, false, target.Detection.Height));
                     if (result.IsUsable)
                     {
-                        engine.SetCalibration(result);
+                        ApplyCameraResponse(result);
                         calibration = null;
                         SaveProfile();
                         message = "Calibration enregistrée pour cette vue. Revenez dans AUTO pour activer l’assistance expérimentale.";
@@ -252,19 +361,57 @@ internal sealed class LocalAutomationSession
             else if (assistance)
             {
                 message = "Assistance : " + TranslateStatus(decision.Status) + ". F8 pour arrêter.";
-                if (decision.HasCorrection && held && R6ForegroundGuard.StillMatches(foreground) && !Key(0x77))
+                if (decision.HasCorrection && held && clock.Elapsed.TotalSeconds - now <= .15 && R6ForegroundGuard.StillMatches(foreground) && !Key(0x77))
                 {
                     if (!LocalMouseOutput.TryMove(decision.CountsX, decision.CountsY, foreground, out string? error))
                     {
-                        assistance = false;
+                        assistance = requestedAssistance = false;
                         message = "Assistance arrêtée : " + error;
                     }
+                    else { lastOutput = now; generatedX = decision.CountsX; generatedY = decision.CountsY; generatedUtc = DateTime.UtcNow; }
                 }
             }
             if (now - lastSave >= 15) { SaveProfile(); lastSave = now; }
+            LocalCaptureService.Instance.PublishInput(new LocalInputSample(capturedUtc, rawAvailable ? dx : null,
+                rawAvailable ? dy : null, Key(1), Key(2), assistance,
+                sceneObserver.Updated && scene.Reliable ? scene.X : null, sceneObserver.Updated && scene.Reliable ? scene.Y : null,
+                scene.Reliable ? scene.Confidence : null, scene.Reliable ? scene.Scale : null,
+                sceneObserver.Updated && scene.Reliable ? interval : null, generatedX, generatedY, generatedUtc));
+            LocalCaptureService.Instance.PublishDetections(frame, bounds, predictions.Select(p => new LocalDetectionBox(
+                p.Rectangle.X, p.Rectangle.Y, p.Rectangle.Width, p.Rectangle.Height, p.Confidence, p.ClassId)).ToArray(),
+                capturedUtc, Path.GetFileName(modelPath), foreground);
             Publish(decision);
             return decision.TargetSourceIndex is int index && index >= 0 && index < predictions.Count ? predictions[index] : null;
         }
+    }
+
+    public string VisionDetail => visionDetail;
+    public string GameplayDetail { get { lock (gate) return gameplayEvidence.Detail; } }
+    public long EstimatedShots { get { lock (gate) return gameplayEvidence.EstimatedShots; } }
+    private void ResetSceneCalibration()
+    {
+        sceneObserver.Reset(); backgroundCalibration = null; sceneRawX = sceneRawY = 0;
+        backgroundX = backgroundY = 1000; backgroundFits = 0; lastBackgroundFit = null;
+        gameplayEvidence.BreakInterval();
+    }
+    private void ApplyCameraResponse(CalibrationResult result)
+    {
+        string material = Math.Sign(result.PixelsPerCountX) + "/" + Math.Sign(result.PixelsPerCountY) + "/" + Math.Round(Math.Log(Math.Abs(result.PixelsPerCountX)), 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "/" +
+            Math.Round(Math.Log(Math.Abs(result.PixelsPerCountY)), 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string view = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant()[..12];
+        string nextPath = Path.Combine(ObservationMode.DataDirectory, "local-profiles", settingsKey + "-view-" + view + ".json");
+        if (profilePath != nextPath)
+        {
+            SaveProfile();
+            profilePath = nextPath;
+            engine = new AdaptiveAimEngine(new AdaptiveControlOptions { MinimumConfidence = minimumConfidence }, AdaptiveProfileStore.Load(profilePath));
+            gameplayEvidence.Reset(RecoilProfileStore.Load(profilePath + ".recoil.json"));
+        }
+        engine.SetCalibration(result);
+        viewNeedsMeasurement = false;
+        SaveProfile();
+        Directory.CreateDirectory(Path.GetDirectoryName(profilePath)!);
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(profilePath)!, settingsKey + "-active-view.txt"), view);
     }
 
     private static string TranslateStatus(string status) => status switch
@@ -278,11 +425,12 @@ internal sealed class LocalAutomationSession
         if (string.IsNullOrEmpty(profilePath)) return;
         string path = profilePath;
         var snapshot = engine.Snapshot(contextKey);
+        var recoilSnapshot = gameplayEvidence.Recoil.Snapshot();
         Task previous = profileWrite;
         profileWrite = Task.Run(async () =>
         {
             await previous.ConfigureAwait(false);
-            try { AdaptiveProfileStore.Save(path, snapshot); }
+            try { AdaptiveProfileStore.Save(path, snapshot); RecoilProfileStore.Save(path + ".recoil.json", recoilSnapshot); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             { lock (gate) { message = "Profil non sauvegardé : " + error.Message; assistance = false; Publish(); } }
         });
@@ -292,6 +440,8 @@ internal sealed class LocalAutomationSession
         var profile = engine.Snapshot(contextKey);
         Volatile.Write(ref state, new(active, calibration != null, assistance, profile.Calibration?.IsUsable == true,
             message, decision?.ContextKey ?? "En attente", calibration?.SamplesX ?? 0, calibration?.SamplesY ?? 0,
-            profile.Profiles.Length, decision?.Gain ?? 0, profilePath));
+            profile.Profiles.Length, decision?.Gain ?? 0, profilePath,
+            profile.Profiles.Sum(p => p.ComparedWindows), profile.Profiles.Count(p => p.AdjustmentEvidence == "MeasuredRandomizedTrackingWindows"),
+            viewNeedsMeasurement));
     }
 }

@@ -7,6 +7,10 @@ using Microsoft.Win32;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace Aimmy2.Controls;
 
@@ -18,22 +22,160 @@ public partial class AutoAimmyMenuControl
     private CancellationTokenSource? learningCancellation;
     private DateTime lastLearningRefresh;
     private LearningState? learningState;
+    private readonly DispatcherTimer automaticTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private bool automaticStarted, automaticStopped;
+    private bool automaticSession;
+    private bool resumeAssistance;
+    private long resumeEmergencyEpoch;
+    private DateTime awayFromGame = DateTime.UtcNow, lastAutomaticPoll;
+    private string lastAutomaticKey = "";
+    private DateTime nextAutomaticAttempt;
+    private string AutomaticStatePath => Path.Combine(ObservationMode.DataDirectory, "learning", "automatic-work.json");
+
+    public void StartAutomaticWork()
+    {
+        if (automaticStarted) return;
+        automaticStarted = true;
+        try
+        {
+            if (File.Exists(AutomaticStatePath))
+            {
+                using var saved = JsonDocument.Parse(File.ReadAllText(AutomaticStatePath));
+                lastAutomaticKey = saved.RootElement.GetProperty("LastKey").GetString() ?? "";
+                AutoLearningToggle.IsChecked = saved.RootElement.GetProperty("Enabled").GetBoolean();
+                if (saved.RootElement.TryGetProperty("AutoCapture", out var capture)) AutoCaptureToggle.IsChecked = capture.GetBoolean();
+            }
+        }
+        catch (Exception error) when (error is IOException or JsonException or InvalidOperationException) { }
+        AutoLearningToggle.Checked += (_, _) => SaveAutomaticState();
+        AutoLearningToggle.Unchecked += (_, _) => { StopBackgroundWork(); SaveAutomaticState(); };
+        AutoCaptureToggle.Checked += (_, _) => SaveAutomaticState();
+        AutoCaptureToggle.Unchecked += (_, _) => { resumeAssistance = false; automaticSession = false; SaveAutomaticState(); };
+        automaticTimer.Tick += async (_, _) =>
+        {
+            bool inGame = R6ForegroundGuard.TryGet(out _);
+            if (inGame)
+            {
+                awayFromGame = DateTime.UtcNow;
+                StopBackgroundWork(); AutomaticLearningStatusText.Text = "Calculs en pause pendant le jeu.";
+                if (AutoCaptureToggle.IsChecked == true && LocalAutomationSession.Instance.Active) automaticSession = true;
+                if (AutoCaptureToggle.IsChecked == true && !localBusy && !learningBusy && !LocalAutomationSession.Instance.Active &&
+                    global::Other.FileManager.AIManager?.IsLoaded == true)
+                {
+                    localBusy = true;
+                    try
+                    {
+                        await Task.Run(() => LocalAutomationSession.Instance.Start()); automaticSession = true;
+                        if (resumeAssistance && resumeEmergencyEpoch == LocalAutomationSession.Instance.EmergencyEpoch)
+                            LocalAutomationSession.Instance.RequestResumeAfterMeasurement();
+                        resumeAssistance = false;
+                    }
+                    catch (Exception error) { AutomaticLearningStatusText.Text = error.Message; }
+                    finally { localBusy = false; }
+                }
+                return;
+            }
+            if (automaticSession && LocalAutomationSession.Instance.Active && !localBusy && !LocalAutomationSession.Instance.State.Calibrating &&
+                DateTime.UtcNow - awayFromGame > TimeSpan.FromSeconds(10))
+            {
+                localBusy = true;
+                try
+                {
+                    resumeAssistance = LocalAutomationSession.Instance.AssistanceRequested;
+                    resumeEmergencyEpoch = LocalAutomationSession.Instance.EmergencyEpoch;
+                    await LocalAutomationSession.Instance.StopAsync(); automaticSession = false;
+                }
+                catch (Exception error) { AutomaticLearningStatusText.Text = error.Message; }
+                finally { localBusy = false; }
+            }
+            if (DateTime.UtcNow - lastAutomaticPoll > TimeSpan.FromSeconds(15))
+            { lastAutomaticPoll = DateTime.UtcNow; await RunAutomaticWorkAsync(); }
+        };
+        automaticTimer.Start();
+    }
+    private void SaveAutomaticState()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(AutomaticStatePath)!);
+            string temporary = AutomaticStatePath + ".tmp";
+            File.WriteAllText(temporary, JsonSerializer.Serialize(new { Enabled = AutoLearningToggle.IsChecked == true,
+                AutoCapture = AutoCaptureToggle.IsChecked == true, LastKey = lastAutomaticKey }));
+            File.Move(temporary, AutomaticStatePath, true);
+        }
+        catch (IOException error) { AutomaticLearningStatusText.Text = "Préférence non sauvegardée : " + error.Message; }
+    }
+    private async Task RunAutomaticWorkAsync()
+    {
+        if (automaticStopped || AutoLearningToggle.IsChecked != true || learningBusy || inspecting || localBusy || LocalAutomationSession.Instance.Active || DateTime.UtcNow < nextAutomaticAttempt) return;
+        string model = LocalAutomationSession.Instance.ModelPath;
+        if (!File.Exists(model)) return;
+        learningBusy = true; learningCancellation = new();
+        string? jobKey = null;
+        try
+        {
+            AutomaticLearningStatusText.Text = "Import et vérification des exemples locaux…";
+            await Task.Run(() => learning.ImportRecordingCaptures(), learningCancellation.Token);
+            learningState = await Task.Run(() => learning.Inspect(model), learningCancellation.Token);
+            string modelHash = ModelLearningCoordinator.HashFile(model);
+            var related = learning.RelatedModelHashes(modelHash);
+            var verified = learning.GetCaptures().Where(c => c.ReviewStatus == "HumanReviewed" && related.Contains(c.ModelSha256)).OrderBy(c => c.Id).ToArray();
+            if (verified.Length < 40)
+            { AutomaticLearningStatusText.Text = $"En attente : {verified.Length}/40 images vérifiées, dans deux sessions. Les cadres non vérifiés ne servent pas de preuve."; return; }
+            jobKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(verified))));
+            if (jobKey == lastAutomaticKey) { AutomaticLearningStatusText.Text = "Derniers exemples déjà comparés ; attente de nouvelles observations vérifiées."; return; }
+            using var detector = new OnnxLearningDetector(model);
+            var dataset = await Task.Run(() => learning.CreateDataset(detector.ClassNames, modelHash), learningCancellation.Token);
+            bool rolledBack = await Task.Run(() => learning.RevalidateSelectedModel(dataset, model, p => new OnnxLearningDetector(p), learningCancellation.Token), learningCancellation.Token);
+            if (rolledBack)
+            {
+                if (!R6ForegroundGuard.TryGet(out _)) ActivateLocalModel(learning.ResolveSelectedModel(model)!);
+                AutomaticLearningStatusText.Text = "Régression mesurée sur de nouvelles images vérifiées : modèle précédent restauré.";
+                lastAutomaticKey = jobKey; SaveAutomaticState(); return;
+            }
+            AutomaticLearningStatusText.Text = "Comparaison automatique des réglages…";
+            var optimized = await Task.Run(() => learning.OptimizeConfidence(dataset, model, LocalAutomationSession.Instance.MinimumConfidence,
+                p => new OnnxLearningDetector(p), learningCancellation.Token), learningCancellation.Token);
+            if (optimized.Accepted) LocalAutomationSession.Instance.ReloadConfiguration();
+            AutomaticLearningStatusText.Text = "Préparation du moteur d’apprentissage local ; téléchargement unique si nécessaire…";
+            await TrainingRuntimeSetup.EnsureAsync(ObservationMode.DataDirectory, learningCancellation.Token,
+                new Progress<(long Received, long Total)>(p => AutomaticLearningStatusText.Text =
+                    $"Moteur local : {p.Received / 1048576}/{p.Total / 1048576} Mo. Le téléchargement reprend après une interruption."));
+            await training.StartAsync(model, learningCancellation.Token);
+            if (training.State.Status == "Accepted" && !LocalAutomationSession.Instance.Active && !R6ForegroundGuard.TryGet(out _))
+            {
+                string? selected = learning.ResolveSelectedModel(null);
+                if (selected != null) ActivateLocalModel(selected);
+            }
+            if (training.State.Status is "Accepted" or "Rejected" || training.State.Blockers.Contains("SourceRecoveryUnsupported")) { lastAutomaticKey = jobKey; SaveAutomaticState(); }
+            AutomaticLearningStatusText.Text = training.State.Detail;
+        }
+        catch (OperationCanceledException) { AutomaticLearningStatusText.Text = "Calcul interrompu pour laisser jouer ; reprise automatique à la prochaine pause."; }
+        catch (Exception error) { nextAutomaticAttempt = DateTime.UtcNow.AddMinutes(5); AutomaticLearningStatusText.Text = FriendlyLearningError(error.Message); }
+        finally { learningCancellation?.Dispose(); learningCancellation = null; learningBusy = false; if (!automaticStopped) RefreshView(); }
+    }
+    public void ShutdownAutomaticWork() { automaticStopped = true; automaticTimer.Stop(); StopBackgroundWork(); }
 
     private void RefreshLocalView()
     {
         var session = LocalAutomationSession.Instance.State;
         var capture = LocalCaptureService.Instance.State;
         LocalStatusText.Text = session.Message;
-        LocalProfileText.Text = $"Calibration : {(session.Calibrated ? "enregistrée pour cette vue" : "nécessaire")} · {session.ProfileCount} sous-profils\n" +
+        LocalProfileText.Text = $"Calibration : {(session.Calibrated ? session.NeedsMeasurement ? "enregistrée · vue actuelle à mesurer" : "validée dans la vue actuelle" : "nécessaire")} · {session.ProfileCount} sous-profils\n" +
             "Contexte : " + session.Context.Replace("Small", "petite cible").Replace("Medium", "cible moyenne").Replace("Large", "grande cible")
                 .Replace("Slow", "mouvement lent").Replace("Moving", "mouvement modéré").Replace("Fast", "mouvement rapide") +
             (session.Gain > 0 ? $" · gain {session.Gain:0.00}" : "");
+        LocalProfileText.Text = LocalProfileText.Text.Replace("Adaptive/", "situation observée ");
+        LocalProfileText.Text += $"\nPersonnalisation : {session.ComparedWindows} fenêtres comparées · {session.ValidatedProfiles} profils ajustés après comparaison.";
         LocalCaptureText.Text = $"Capture : {capture.FullFrames} images du jeu · {capture.CandidateFrames} exemples · {capture.BytesWritten / 1048576.0:0.0} Mo" +
             (capture.Error != null ? "\n" + capture.Error : capture.Active ? " · active lorsque R6 est au premier plan" : " · arrêtée");
+        SceneStatusText.Text = LocalAutomationSession.Instance.VisionDetail;
+        GameplayStatusText.Text = LocalAutomationSession.Instance.GameplayDetail + "\n" + LocalCaptureService.Instance.VisualDetail;
         StartLocalButton.IsEnabled = !localBusy && !learningBusy && !session.Active && global::Other.FileManager.AIManager?.IsLoaded == true;
         CalibrateLocalButton.IsEnabled = !localBusy && !learningBusy && !session.Calibrating && global::Other.FileManager.AIManager?.IsLoaded == true;
         AssistLocalButton.IsEnabled = !localBusy && !learningBusy && session.Active && session.Calibrated && !session.Calibrating;
-        AssistLocalButton.Content = session.AssistanceEnabled ? "Désactiver l’assistance" : "Activer l’assistance expérimentale";
+        AssistLocalButton.Content = session.AssistanceEnabled ? "Désactiver l’assistance" :
+            LocalAutomationSession.Instance.AssistanceRequested ? "Annuler la reprise en attente" : "Activer l’assistance expérimentale";
         StopLocalButton.IsEnabled = !localBusy && session.Active;
         ReviewLearningButton.IsEnabled = !learningBusy && !session.Active;
         OptimizeLearningButton.IsEnabled = !learningBusy && !session.Active;
@@ -93,12 +235,13 @@ public partial class AutoAimmyMenuControl
     }
     private void AssistLocal_Click(object sender, RoutedEventArgs e)
     {
-        try { LocalAutomationSession.Instance.EnableAssistance(!LocalAutomationSession.Instance.State.AssistanceEnabled); }
+        try { LocalAutomationSession.Instance.EnableAssistance(!LocalAutomationSession.Instance.AssistanceRequested); }
         catch (Exception error) { ActionMessage.Text = error.Message; }
         RefreshView();
     }
     private async void StopLocal_Click(object sender, RoutedEventArgs e)
     {
+        resumeAssistance = false; automaticSession = false;
         localBusy = true; RefreshView();
         try { await LocalAutomationSession.Instance.StopAsync(); await RefreshLearningAsync(import: true); }
         catch (Exception error) { ActionMessage.Text = error.Message; }
@@ -203,15 +346,17 @@ public partial class AutoAimmyMenuControl
     {
         if (learningBusy || LocalAutomationSession.Instance.Active) return;
         learningBusy = true; RefreshView();
+        learningCancellation = new();
         try
         {
-            await training.StartAsync(LocalAutomationSession.Instance.ModelPath);
+            await TrainingRuntimeSetup.EnsureAsync(ObservationMode.DataDirectory, learningCancellation.Token);
+            await training.StartAsync(LocalAutomationSession.Instance.ModelPath, learningCancellation.Token);
             string? selected = learning.ResolveSelectedModel(null);
             if (training.State.Status == "Accepted" && selected != null) ActivateLocalModel(selected);
             LearningActionText.Text = training.State.Detail;
         }
         catch (Exception error) { LearningActionText.Text = FriendlyLearningError(error.Message); }
-        finally { learningBusy = false; await RefreshLearningAsync(); RefreshView(); }
+        finally { learningCancellation?.Dispose(); learningCancellation = null; learningBusy = false; await RefreshLearningAsync(); RefreshView(); }
     }
     private void CancelTraining_Click(object sender, RoutedEventArgs e) => StopBackgroundWork();
     public void StopBackgroundWork() { training.Cancel(); learningCancellation?.Cancel(); }
